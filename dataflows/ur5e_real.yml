@@ -1,0 +1,96 @@
+# LOCAL bimanual real UR5e (LEFT + RIGHT) web teleop, single machine, no cameras / no recording.
+#
+# web-controller (browser, manual Cartesian) --command--> pinocchio (IK + safety, dual-arm scene)
+#   --<side>_joint_target--> followers module (2x ur5e-robot servoJ + state_sync), whose bundled
+#   `state` (dim 14) feeds back to pinocchio; manager gates startup/liveness; rerun-view shows
+#   both 3D arms.
+#
+# Prereqs on BOTH UR pendants: powered, brakes released, Remote Control mode (or External Control
+# URCap), no protective/e-stop. Confirm each controller's installed TCP matches the model ee_site
+# (gripper pinch) or is zeroed — otherwise IK targets are in the wrong frame and the arm drifts.
+# Keep both hardware e-stops in hand.
+#
+#   build: uv run --env-file dataflows/robot_envs/ur5-corner.env dora build  dataflows/ur5e_real.yml
+#   run:   uv run --env-file dataflows/robot_envs/ur5-corner.env dora start --attach dataflows/ur5e_real.yml
+#   Then open http://127.0.0.1:8421 . First action: a single small +Z nudge on ONE arm — confirm it
+#   moves the expected direction/amount before anything else. The red Disconnect button stops both
+#   arms in place and ends the run; Ctrl-C is the fallback.
+
+nodes:
+  - id: manager
+    build: uv sync --project nodes/manager
+    path: nodes/manager/.venv/bin/manager
+    inputs:
+      arm_left:   followers/left_node_state
+      arm_right:  followers/right_node_state
+      state_sync: followers/node_state
+      pinocchio:  pinocchio/node_state
+      controller: controller/robot_command   # Disconnect button -> program_state disconnect
+    outputs: [program_state]
+    env:
+      MODE: "teleop"
+      PRODUCERS: "arm_left,arm_right,pinocchio,state_sync"
+
+  - id: controller
+    build: uv sync --project nodes/web-controller
+    path: nodes/web-controller/.venv/bin/web-controller
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      # Seed/anchor each Cartesian target from pinocchio's MODEL-FRAME ee pose (FK of the joint
+      # state), NOT the robot's raw getActualTCPPose (UR base frame) — seeding from the wrong
+      # frame makes the arm lunge on startup to reconcile the offset.
+      left_tcp_pose:       { source: pinocchio/left_measured_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:      { source: pinocchio/right_measured_pose, queue_size: 1, queue_policy: drop_oldest }
+      left_solution_pose:  { source: pinocchio/left_solution_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_solution_pose: { source: pinocchio/right_solution_pose, queue_size: 1, queue_policy: drop_oldest }
+    outputs: [command, episode_control, robot_command, node_state]
+    env:
+      MODE: "manual"
+      SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"
+      COMMAND_LAYOUT: "cartesian"
+      HOST: "127.0.0.1"
+      PORT: "8421"
+      POS_STEP: "0.005"   # m per nudge (gentle for first runs; default 0.01)
+      ROT_STEP: "0.02"    # rad per nudge (default 0.05)
+
+  - id: pinocchio
+    build: uv sync --project nodes/pinocchio
+    path: nodes/pinocchio/.venv/bin/pinocchio-node
+    inputs:
+      command: { source: controller/command, queue_size: 1, queue_policy: drop_oldest }
+      state:   { source: followers/state,    queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
+              left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
+    env:
+      MODE: "control"
+      SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"
+      COMMAND_LAYOUT: "cartesian"
+
+  # 2x ur5e-robot followers + state_sync (see modules/ur5e_pair_module.yml).
+  - id: followers
+    module: modules/ur5e_pair_module.yml
+    inputs:
+      program_state: manager/program_state
+      left_joint_target: pinocchio/left_joint_target
+      left_gripper_joint_target: pinocchio/left_gripper_joint_target
+      right_joint_target: pinocchio/right_joint_target
+      right_gripper_joint_target: pinocchio/right_gripper_joint_target
+      robot_command: controller/robot_command
+
+  - id: rerun-view
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
+      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "ur5e_real"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__CAMERAS: ""
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      VISUALIZE__SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"

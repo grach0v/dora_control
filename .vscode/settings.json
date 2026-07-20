@@ -1,0 +1,6 @@
+{
+  // Root folder: only the dora CLI lives here. Node code resolves against each
+  // node's own venv (see nodes/<name>/.vscode/settings.json) when this repo is
+  // opened via dora-claude.code-workspace.
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/bin/python"
+}

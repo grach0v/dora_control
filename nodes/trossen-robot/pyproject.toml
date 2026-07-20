@@ -1,0 +1,33 @@
+[project]
+name = "trossen-robot"
+version = "0.0.0"
+description = "Real stationary bimanual Trossen robot (WXAI arms via trossen-arm), mirroring the sim stream interface."
+readme = "README.md"
+# <3.14: trossen-arm ships wheels up to cp313 only.
+requires-python = ">=3.11,<3.14"
+dependencies = [
+    "dora-rs",
+    "pyarrow",
+    "pydantic-settings",
+    "trossen-arm==1.9.3",
+    "scipy",
+    "numpy",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+[project.scripts]
+trossen-robot = "trossen_robot.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["trossen_robot"]
+
+[tool.uv.sources]
+# Pinned 1.0.0-rc1 commit (kill->orphan->CPU-spin + macOS run-hang fixes);
+# no PyPI wheel exists past 0.5.0. CLI comes from scripts/build-dora.sh.
+dora-rs = { git = "https://github.com/dora-rs/dora", rev = "8556977ed2c4f56624e08b90dfc7dc8f54897bd9", subdirectory = "apis/python/node" }

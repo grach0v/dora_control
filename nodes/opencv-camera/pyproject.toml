@@ -1,0 +1,30 @@
+[project]
+name = "opencv-camera"
+version = "0.0.0"
+description = "Dora node publishing frames from an OpenCV capture (rgb8 or jpeg)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dora-rs",
+    "opencv-python",
+    "pyarrow",
+    "pydantic-settings",
+]
+
+[dependency-groups]
+dev = ["pytest", "numpy"]  # numpy only used by the test video generator
+
+[project.scripts]
+opencv-camera = "opencv_camera.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["opencv_camera"]
+
+[tool.uv.sources]
+# Pinned 1.0.0-rc1 commit (kill->orphan->CPU-spin + macOS run-hang fixes);
+# no PyPI wheel exists past 0.5.0. CLI comes from scripts/build-dora.sh.
+dora-rs = { git = "https://github.com/dora-rs/dora", rev = "8556977ed2c4f56624e08b90dfc7dc8f54897bd9", subdirectory = "apis/python/node" }

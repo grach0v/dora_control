@@ -1,0 +1,157 @@
+# CROSS-ROBOT remote teleop: two hand-guided Trossen WXAI leader arms (trossen-mobile)
+# drive the bimanual UR5e cell (ur5-corner), coordinated from a third machine (laptop).
+#
+#   leader_left/right (trossen-robot, MODE=leader, operator machine)
+#     --<arm>_tcp_pose + <arm>_gripper_state--> retarget (operator machine; delta-based
+#     leader→follower mapping: translation SCALE, ALIGN_RPY frame alignment, gripper range)
+#     --command(cartesian bundle, crosses zenoh)--> pinocchio (robot machine; IK + safety)
+#     --<part>_joint_target--> followers module (2x ur5e-robot servoJ + state_sync), whose
+#     bundled `state` feeds back to pinocchio; pinocchio's <arm>_measured_pose crosses back
+#     to anchor the retarget engage + rerun-view (operator machine) shows the UR cell 3D.
+#   web (episode mode, operator machine) provides the red Disconnect button (stops the UR
+#     arms in place, releases the leaders) + episode control for later recording.
+#
+# The retarget mapping is delta-based (engage anchors at startup), so the leaders can rest in
+# any pose when the flow starts — the URs pick up from wherever they are; no startup lunge.
+#
+# Machines: `robot` = the UR host (ur5-corner), `operator` = the leader host (trossen-mobile);
+# the coordinator (your laptop) runs no nodes. Load BOTH host env-files:
+#   uv run --env-file dataflows/robot_envs/ur5-corner.env --env-file dataflows/robot_envs/trossen-mobile.env \
+#     dora build dataflows/remote_ur5e_from_trossen.yml --coordinator-addr 127.0.0.1
+#   (same for `dora start --attach ...`; runbook in dataflows/README.md)
+
+nodes:
+  - id: manager
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/manager
+    path: nodes/manager/.venv/bin/manager
+    inputs:
+      leader_left:  leader_left/left_node_state
+      leader_right: leader_right/right_node_state
+      retarget:     retarget/node_state
+      arm_left:     followers/left_node_state
+      arm_right:    followers/right_node_state
+      state_sync:   followers/node_state
+      pinocchio:    pinocchio/node_state
+      controller:   controller/robot_command
+    outputs: [program_state]
+    env:
+      MODE: "teleop"
+      PRODUCERS: "leader_left,leader_right,retarget,arm_left,arm_right,pinocchio,state_sync"
+      # Startup stage machine: once all producers are alive, pinocchio slowly ramps the
+      # URs to the descriptor home (`homing` stage; retarget holds off); when its node_state
+      # says `homed`, the manager enters `teleop` and hand-guiding goes live.
+
+  # --- LEADER arms (trossen-mobile; backdrivable, publish their hand-moved state) ---
+  - id: leader_left
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/trossen-robot
+    path: nodes/trossen-robot/.venv/bin/trossen-robot
+    inputs:
+      robot_command: { source: controller/robot_command, queue_size: 1, queue_policy: drop_oldest }
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+    outputs: [left_tcp_pose, left_joint_state, left_gripper_state, left_node_state]
+    env:
+      NAME: "left"
+      IP: "${LEFT_LEADER_IP}"
+      MODE: "leader"
+      # Raised staged pose, gripper pointing straight DOWN (6 joints rad + gripper m).
+      LEADER__STAGED_POSE: "[0.0, 1.35, 1.15, -1.37, 0.0, 0.0, 0.0]"
+
+  - id: leader_right
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/trossen-robot
+    path: nodes/trossen-robot/.venv/bin/trossen-robot
+    inputs:
+      robot_command: { source: controller/robot_command, queue_size: 1, queue_policy: drop_oldest }
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+    outputs: [right_tcp_pose, right_joint_state, right_gripper_state, right_node_state]
+    env:
+      NAME: "right"
+      IP: "${RIGHT_LEADER_IP}"
+      MODE: "leader"
+      LEADER__STAGED_POSE: "[0.0, 1.35, 1.15, -1.37, 0.0, 0.0, 0.0]"
+
+  # --- retarget (operator machine): leader TCP deltas -> the UR cell's cartesian command ---
+  - id: retarget
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/retarget
+    path: nodes/retarget/.venv/bin/retarget-node
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      left_tcp_pose:       { source: leader_left/left_tcp_pose,        queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:      { source: leader_right/right_tcp_pose,      queue_size: 1, queue_policy: drop_oldest }
+      left_gripper_state:  { source: leader_left/left_gripper_state,   queue_size: 1, queue_policy: drop_oldest }
+      right_gripper_state: { source: leader_right/right_gripper_state, queue_size: 1, queue_policy: drop_oldest }
+      left_measured_pose:  { source: pinocchio/left_measured_pose,     queue_size: 1, queue_policy: drop_oldest }
+      right_measured_pose: { source: pinocchio/right_measured_pose,    queue_size: 1, queue_policy: drop_oldest }
+    outputs: [command, node_state]
+    env:
+      MODE: "follow"
+      SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"
+      COMMAND_LAYOUT: "cartesian"
+      # Trossen leader sweep -> the larger UR workspace. Tune live; start conservative.
+      SCALE: "1.5"
+      # Leader-base-frame directions expressed in the UR model world frame (z-up both sides,
+      # so a single yaw). CALIBRATE ON FIRST RUN: push one leader gently forward and check the
+      # UR moves the expected way in rerun before trusting it.
+      ALIGN_RPY: "0,0,3.14159"
+      LEADER_GRIPPER_OPEN: "0.044"    # WXAI gripper metres
+      LEADER_GRIPPER_CLOSED: "0.0"
+      MAX_POS_STEP: "0.03"            # m per 33ms tick — a bumped/flopped leader glides, never teleports
+      MAX_ROT_STEP: "0.15"
+
+  # --- IK + safety gate (robot machine, next to the arms) ---
+  - id: pinocchio
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/pinocchio
+    path: nodes/pinocchio/.venv/bin/pinocchio-node
+    inputs:
+      command: { source: retarget/command, queue_size: 1, queue_policy: drop_oldest }
+      state:   { source: followers/state,  queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
+              left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
+    env: { MODE: "control", SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml", COMMAND_LAYOUT: "cartesian" }
+
+  # --- FOLLOWER UR5e cell (see modules/ur5e_pair_module.yml) ---
+  - id: followers
+    module: modules/ur5e_pair_module.yml
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    inputs:
+      program_state: manager/program_state
+      left_joint_target: pinocchio/left_joint_target
+      left_gripper_joint_target: pinocchio/left_gripper_joint_target
+      right_joint_target: pinocchio/right_joint_target
+      right_gripper_joint_target: pinocchio/right_gripper_joint_target
+      robot_command: controller/robot_command
+
+  # --- operator surface: Disconnect + episode control (no motion commands) ---
+  - id: controller
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/web-controller
+    path: nodes/web-controller/.venv/bin/web-controller
+    outputs: [episode_control, robot_command, node_state]
+    env: { MODE: "episode", HOST: "127.0.0.1", PORT: "8421" }
+
+  # --- live 3D view of the (remote) UR cell on the operator machine ---
+  - id: rerun-view
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
+      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "ur5e_from_trossen"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__CAMERAS: ""
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      # 3D UR cell driven by the real arms' bundled joint state.
+      VISUALIZE__SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"

@@ -1,0 +1,57 @@
+# Module: the 4-RealSense camera rig (2 static + 2 wrist). Each camera is its own
+# node (one node = one device); serials come from the host env-file (${STATIC1},
+# ${STATIC2}, ${WRIST1}, ${WRIST2}).
+#
+# The cameras capture on a background thread and publish each captured frame as it
+# lands — the wire rate IS the per-camera sensor FPS (no tick, no timer-phase lag).
+# Consumers that record (lerobot FPS) must match the FPS set here.
+#
+# TODO(dora): inner paths go through the `dataflows/nodes` symlink because dora
+# rejects module node paths outside the dataflow's directory — see dataflows/README.md.
+
+module:
+  name: camera_rig
+  inputs:
+    - program_state
+  outputs:
+    - cam_static1_image
+    - cam_static2_image
+    - cam_wrist1_image
+    - cam_wrist2_image
+    - cam_static1_node_state
+    - cam_static2_node_state
+    - cam_wrist1_node_state
+    - cam_wrist2_node_state
+
+nodes:
+  - id: cam_static1
+    build: uv sync --project nodes/realsense-camera
+    path: ../nodes/realsense-camera/.venv/bin/realsense-camera
+    inputs:
+      program_state: _mod/program_state
+    outputs: [cam_static1_image, cam_static1_node_state]
+    env: { CAMERA_NAME: "cam_static1", FPS: "30", SERIAL: "${STATIC1}", ENCODING: "jpeg", JPEG_QUALITY: "80" }
+
+  - id: cam_static2
+    build: uv sync --project nodes/realsense-camera
+    path: ../nodes/realsense-camera/.venv/bin/realsense-camera
+    inputs:
+      program_state: _mod/program_state
+    outputs: [cam_static2_image, cam_static2_node_state]
+    env: { CAMERA_NAME: "cam_static2", FPS: "30", SERIAL: "${STATIC2}", ENCODING: "jpeg", JPEG_QUALITY: "80" }
+
+  - id: cam_wrist1
+    build: uv sync --project nodes/realsense-camera
+    path: ../nodes/realsense-camera/.venv/bin/realsense-camera
+    inputs:
+      program_state: _mod/program_state
+    outputs: [cam_wrist1_image, cam_wrist1_node_state]
+    env: { CAMERA_NAME: "cam_wrist1", FPS: "30", SERIAL: "${WRIST1}", ENCODING: "jpeg", JPEG_QUALITY: "80" }
+
+  - id: cam_wrist2
+    build: uv sync --project nodes/realsense-camera
+    path: ../nodes/realsense-camera/.venv/bin/realsense-camera
+    inputs:
+      program_state: _mod/program_state
+    outputs: [cam_wrist2_image, cam_wrist2_node_state]
+    env: { CAMERA_NAME: "cam_wrist2", FPS: "30", SERIAL: "${WRIST2}", ENCODING: "jpeg", JPEG_QUALITY: "80" }

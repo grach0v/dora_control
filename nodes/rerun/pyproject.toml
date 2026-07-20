@@ -1,0 +1,41 @@
+[project]
+name = "dora-rerun"
+version = "0.0.0"
+description = "Dora node for rerun: record robot streams to per-episode .rrd, or visualize them live in a viewer. One node, two modes (MODE=record|visualize)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dora-rs",
+    "rerun-sdk",
+    "av",
+    "numpy",
+    "pyarrow",
+    "pydantic-settings",
+    # Optional 3D-robot view: load the descriptor's model + run FK to place link meshes.
+    "mujoco",
+    "pyyaml",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+# The package is `rerun_node`, NOT `rerun`: a package named `rerun` would shadow
+# the rerun SDK, breaking `import rerun as rr` inside our own modules. The console
+# script is `rerun-node`, NOT `rerun`: rerun-sdk ships its own `rerun` script (the
+# viewer CLI) into the same venv, so naming ours `rerun` collides — whichever is
+# installed last wins, and the dataflow would silently launch the viewer instead
+# of this node (it binds gRPC :9876 and never connects to dora).
+[project.scripts]
+rerun-node = "rerun_node.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["rerun_node"]
+
+[tool.uv.sources]
+# Pinned 1.0.0-rc1 commit (kill->orphan->CPU-spin + macOS run-hang fixes);
+# no PyPI wheel exists past 0.5.0. CLI comes from scripts/build-dora.sh.
+dora-rs = { git = "https://github.com/dora-rs/dora", rev = "8556977ed2c4f56624e08b90dfc7dc8f54897bd9", subdirectory = "apis/python/node" }

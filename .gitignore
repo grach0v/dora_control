@@ -1,0 +1,23 @@
+__pycache__/
+*.pyc
+.venv/
+uv.lock
+.pytest_cache/
+out/
+.dora/
+*.egg-info/
+log.txt
+
+# generated headless test copies
+dataflows/**/_*.yml
+
+# host-specific deploy configs — commit the *.example templates instead
+*.env
+dataflows/zenoh/*.json5
+
+# personal scratch / review notes
+comments.md
+.dora-build/
+
+# MuJoCo writes this on model load — transient
+MUJOCO_LOG.TXT

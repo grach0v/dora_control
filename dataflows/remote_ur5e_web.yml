@@ -1,0 +1,155 @@
+# REMOTE web teleop + episode recording for the bimanual UR5e cell.
+#
+# Same graph as remote_trossen_web.yml with the UR5e cell: followers module = 2x ur5e-robot
+# (servoJ) + state_sync. Set ${LEFT_UR_IP}/${RIGHT_UR_IP} + camera serials in
+# dataflows/robot_envs/ur5-corner.env; daemon networking in dataflows/README.md.
+#
+#   uv run --env-file dataflows/robot_envs/ur5-corner.env \
+#     dora build dataflows/remote_ur5e_web.yml --coordinator-addr <robot-addr>
+#   (same for `dora start --attach ...`)
+
+nodes:
+  - id: manager
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/manager
+    path: nodes/manager/.venv/bin/manager
+    inputs:
+      arm_left:    followers/left_node_state
+      arm_right:   followers/right_node_state
+      state_sync:  followers/node_state
+      pinocchio:   pinocchio/node_state
+      cam_static1: cams/cam_static1_node_state
+      cam_static2: cams/cam_static2_node_state
+      cam_wrist1:  cams/cam_wrist1_node_state
+      cam_wrist2:  cams/cam_wrist2_node_state
+      controller:  controller/robot_command   # Disconnect button -> program_state disconnect
+    outputs: [program_state]
+    env:
+      MODE: "teleop"
+      PRODUCERS: "arm_left,arm_right,pinocchio,state_sync,cam_static1,cam_static2,cam_wrist1,cam_wrist2"
+
+  - id: controller
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/web-controller
+    path: nodes/web-controller/.venv/bin/web-controller
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      # Anchor targets in pinocchio's model frame (FK of measured joints), NOT the UR driver's
+      # getActualTCPPose (base frame) — the wrong frame makes IK lunge the arm on startup.
+      left_tcp_pose:       { source: pinocchio/left_measured_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:      { source: pinocchio/right_measured_pose, queue_size: 1, queue_policy: drop_oldest }
+      left_solution_pose:  { source: pinocchio/left_solution_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_solution_pose: { source: pinocchio/right_solution_pose, queue_size: 1, queue_policy: drop_oldest }
+    outputs: [command, episode_control, robot_command, node_state]
+    env:
+      MODE: "manual"
+      SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"
+      COMMAND_LAYOUT: "cartesian"
+      HOST: "127.0.0.1"
+      PORT: "8421"
+
+  - id: pinocchio
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/pinocchio
+    path: nodes/pinocchio/.venv/bin/pinocchio-node
+    inputs:
+      command: { source: controller/command, queue_size: 1, queue_policy: drop_oldest }
+      state:   { source: followers/state,    queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
+              left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
+    env: { MODE: "control", SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml", COMMAND_LAYOUT: "cartesian" }
+
+  # 2x ur5e-robot followers + state_sync (see modules/ur5e_pair_module.yml).
+  - id: followers
+    module: modules/ur5e_pair_module.yml
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    inputs:
+      program_state: manager/program_state
+      left_joint_target: pinocchio/left_joint_target
+      left_gripper_joint_target: pinocchio/left_gripper_joint_target
+      right_joint_target: pinocchio/right_joint_target
+      right_gripper_joint_target: pinocchio/right_gripper_joint_target
+      robot_command: controller/robot_command
+
+  # 4x RealSense (see modules/camera_rig_module.yml); serials from the host env-file.
+  # Cameras self-pace at their sensor FPS (30, matching the recorders' FPS below).
+  - id: cams
+    module: modules/camera_rig_module.yml
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    inputs:
+      program_state: manager/program_state
+
+  # Both recorders run on the robot host (record next to the cameras → no network decode) and
+  # capture each episode under operator Start/Finish control. Sinks — not in manager PRODUCERS.
+  - id: lerobot
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/lerobot
+    path: nodes/lerobot/.venv/bin/lerobot-node
+    inputs:
+      cam_static1: cams/cam_static1_image
+      cam_static2: cams/cam_static2_image
+      cam_wrist1: cams/cam_wrist1_image
+      cam_wrist2: cams/cam_wrist2_image
+      state: followers/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      REPO_ID: "ur5e/teleop_web"
+      REPO_ROOT: "out/lerobot_ur5e_real"
+      FPS: "30"
+      CAMERAS: "cam_static1,cam_static2,cam_wrist1,cam_wrist2"
+      IMAGE_WIDTH: "640"
+      IMAGE_HEIGHT: "480"
+      STATE_INPUTS: "state"
+      STATE_DIM: "14"
+      ACTION_INPUTS: "command"
+      ACTION_DIM: "16"
+
+  - id: rerun-record
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_static1: cams/cam_static1_image
+      cam_static2: cams/cam_static2_image
+      cam_wrist1: cams/cam_wrist1_image
+      cam_wrist2: cams/cam_wrist2_image
+      left_tcp_pose: followers/left_tcp_pose
+      right_tcp_pose: followers/right_tcp_pose
+      state: followers/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      MODE: "record"
+      APP_ID: "ur5e_web"
+      RECORD__RRD_DIR: "out/rerun_ur5e_real"
+      RECORD__FPS: "30"
+      RECORD__IMAGE_MODE: "h264"
+
+  - id: rerun-view
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_static1: { source: cams/cam_static1_image, queue_size: 1, queue_policy: drop_oldest }
+      cam_static2: { source: cams/cam_static2_image, queue_size: 1, queue_policy: drop_oldest }
+      cam_wrist1:  { source: cams/cam_wrist1_image,  queue_size: 1, queue_policy: drop_oldest }
+      cam_wrist2:  { source: cams/cam_wrist2_image,  queue_size: 1, queue_policy: drop_oldest }
+      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
+      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "ur5e_web"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__CAMERAS: "cam_static1,cam_static2,cam_wrist1,cam_wrist2"
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      # 3D robot view from the real arms' joint state (objects don't matter — robot only).
+      VISUALIZE__SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"

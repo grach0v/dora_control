@@ -1,0 +1,181 @@
+"""Genesis world wrapper (within-node only).
+
+Genesis' renderer needs the process MAIN thread (a worker thread crashes with an NSException
+on macOS), so the whole sim (step + render) runs inline on the dora loop. Generic over the
+scene descriptor's **parts**: each part maps to Genesis dof indices (+ optional ee link/offset).
+Consumes per-part joint targets, emits the whole-robot `state` bundle (per `state_layout`) +
+per-part ee poses. Genesis does no IK (pinocchio owns it). Not a shared library (CLAUDE.md).
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import cv2
+import numpy as np
+import yaml
+from scipy.spatial.transform import Rotation
+
+from genesis_node.node_config import GenesisConfig
+
+
+def load_descriptor(scene_path: str) -> dict:
+    path = Path(scene_path).resolve()
+    desc = yaml.safe_load(path.read_text())
+    desc["_root"] = path.parent.parent
+    return desc
+
+
+def encode(frame_rgb: np.ndarray, cfg: GenesisConfig) -> np.ndarray:
+    if cfg.encoding == "jpeg":
+        bgr = cv2.cvtColor(frame_rgb, cv2.COLOR_RGB2BGR)
+        ok, buf = cv2.imencode(".jpg", bgr, [cv2.IMWRITE_JPEG_QUALITY, cfg.jpeg_quality])
+        if not ok:
+            raise RuntimeError("JPEG encode failed")
+        return buf.ravel()
+    if cfg.encoding == "rgb8":
+        return np.ascontiguousarray(frame_rgb).ravel()
+    raise ValueError(f"unsupported encoding {cfg.encoding!r}")
+
+
+def _quat_wxyz_to_R(q_wxyz):
+    w, x, y, z = q_wxyz
+    return Rotation.from_quat([x, y, z, w]).as_matrix()
+
+
+def _np(x):
+    return np.asarray(x.cpu().numpy() if hasattr(x, "cpu") else x, dtype=float)
+
+
+class GenesisWorld:
+    def __init__(self, cfg: GenesisConfig, descriptor: dict):
+        self.cfg = cfg
+        self.desc = descriptor
+        self.timestep = 0.01  # physics dt (s); the mode paces substeps to wall-clock with it
+        self._built = False
+
+    def build(self) -> None:
+        import genesis as gs
+
+        backend = {"cpu": gs.cpu, "gpu": gs.gpu, "metal": gs.metal, "": gs.gpu}[self.cfg.backend]
+        gs.init(backend=backend, logging_level="warning")
+        directional = gs.options.vis.DirectionalLight
+        vis = gs.options.VisOptions(
+            ambient_light=(0.6, 0.6, 0.6), shadow=False,
+            lights=[directional(dir=(0.0, 0.0, -1.0), color=(1.0, 1.0, 1.0), intensity=6.0),
+                    directional(dir=(-1.0, -1.0, -1.0), color=(1.0, 1.0, 1.0), intensity=4.0),
+                    directional(dir=(1.0, 1.0, -1.0), color=(1.0, 1.0, 1.0), intensity=4.0)],
+        )
+        self.scene = gs.Scene(show_viewer=not self.cfg.headless,
+                              sim_options=gs.options.SimOptions(dt=self.timestep), vis_options=vis)
+        self.robot = self.scene.add_entity(gs.morphs.MJCF(file=str(self.desc["_root"] / self.desc["model_no_floor"])))
+        self.scene.add_entity(gs.morphs.Plane())
+        self._add_objects(gs)
+        self._cams = self._add_cameras()
+        self.scene.build()
+        self._index()
+        self._init_pose()
+        self._built = True
+
+    def _add_objects(self, gs) -> None:
+        for obj in self.desc.get("objects", []):
+            pos = tuple(obj["pos"])
+            if obj["type"] == "box":
+                self.scene.add_entity(gs.morphs.Box(size=tuple(obj["size"]), pos=pos))
+            elif obj["type"] == "sphere":
+                self.scene.add_entity(gs.morphs.Sphere(radius=float(obj["size"][0]), pos=pos))
+            else:
+                raise ValueError(f"unknown object type {obj['type']!r}")
+
+    def _add_cameras(self) -> dict:
+        by_name = {c["name"]: c for c in self.desc["cameras"]}
+        cams = {}
+        for name in self.cfg.cameras:
+            spec = by_name[name]
+            cams[name] = (self.scene.add_camera(
+                res=(self.cfg.width, self.cfg.height), pos=tuple(spec.get("pos", [1, 0, 0.5])),
+                lookat=tuple(spec.get("lookat", [0, 0, 0])), fov=float(spec.get("fov", 60)), GUI=False,
+            ), spec)
+        return cams
+
+    def _dof(self, name):
+        return self.robot.get_joint(name).dofs_idx_local[0]
+
+    def _index(self) -> None:
+        joint_names = [j.name for j in self.robot.joints]
+        self.parts: dict[str, dict] = {}
+        for name, p in self.desc["parts"].items():
+            state_dofs = [self._dof(jn) for jn in p["joints"]]
+            if p.get("type") == "gripper":   # genesis sets dofs directly: drive ALL carriages
+                ctrl_dofs = [self._dof(jn) for jn in joint_names
+                             if jn.startswith(p["prefix"]) and "carriage" in jn]
+            else:
+                ctrl_dofs = state_dofs
+            ee = p.get("ee_link")
+            self.parts[name] = {
+                "state_dofs": state_dofs, "ctrl_dofs": ctrl_dofs,
+                "ee_link": self.robot.get_link(ee) if ee else None,
+                "ee_offset": np.asarray(p.get("ee_offset", [0, 0, 0]), dtype=float),
+            }
+
+    def _init_pose(self) -> None:
+        for name, part in self.parts.items():
+            home = self.desc["parts"][name].get("home")
+            if home is None:
+                continue
+            ctrl = part["ctrl_dofs"]
+            kp = 1000.0 if self.desc["parts"][name].get("type") == "gripper" else 200.0
+            self.robot.set_dofs_kp(np.full(len(ctrl), kp), ctrl)
+            self.robot.set_dofs_kv(np.full(len(ctrl), kp / 20.0), ctrl)
+            pos = np.asarray(home, dtype=float)
+            pos = pos if len(pos) == len(ctrl) else np.full(len(ctrl), pos[0])
+            self.robot.set_dofs_position(pos, ctrl)
+            self.robot.control_dofs_position(pos, ctrl)
+
+    def apply(self, joint_targets: dict) -> None:
+        for name, vals in joint_targets.items():
+            if vals is None:
+                continue
+            ctrl = self.parts[name]["ctrl_dofs"]
+            vals = np.asarray(vals, dtype=float)
+            pos = vals if len(vals) == len(ctrl) else np.full(len(ctrl), vals[0])
+            self.robot.control_dofs_position(pos, ctrl)
+
+    def step(self, n: int) -> None:
+        for _ in range(n):
+            self.scene.step()
+
+    def state_bundle(self) -> np.ndarray:
+        out = []
+        for e in self.desc["state_layout"]:
+            dofs = self.parts[e["part"]]["state_dofs"]
+            out.append(_np(self.robot.get_dofs_position(dofs))[: e["dim"]])
+        return np.concatenate(out)
+
+    def tcp_poses(self) -> dict:
+        poses = {}
+        for name, part in self.parts.items():
+            link = part["ee_link"]
+            if link is None:
+                continue
+            p = _np(link.get_pos())
+            q_wxyz = _np(link.get_quat())
+            ee_pos = p + _quat_wxyz_to_R(q_wxyz) @ part["ee_offset"]
+            w, x, y, z = q_wxyz
+            poses[name] = [*ee_pos.tolist(), float(x), float(y), float(z), float(w)]
+        return poses
+
+    def render(self) -> dict:
+        frames = {}
+        for name, (cam, spec) in self._cams.items():
+            mount = spec.get("mount")
+            if mount is not None:
+                link = self.parts[mount]["ee_link"]
+                base = _np(link.get_pos())
+                R = _quat_wxyz_to_R(_np(link.get_quat()))
+                cam.set_pose(pos=base + R @ np.asarray(spec["pos"]), lookat=base + R @ np.asarray(spec["lookat"]))
+            frames[name] = encode(np.asarray(cam.render()[0]), self.cfg)
+        return frames
+
+    def close(self) -> None:
+        pass

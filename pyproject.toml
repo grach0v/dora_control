@@ -1,0 +1,20 @@
+# Workspace root — a minimal project so `uv run` works from the repo root.
+# The dora CLI is pinned to a 1.0.0-rc1 commit for the kill->orphan->CPU-spin
+# (PR #1388) and macOS `dora run` shutdown-hang (#2313) fixes. There is no PyPI
+# wheel past 0.5.0 and dora's pip CLI wheel is broken at this ref, so the CLI is
+# built from source by `scripts/build-dora.sh`, which installs a working `dora`
+# into .venv/bin (so `uv run dora ...` keeps working). Re-run that script after
+# `uv sync`. Each node under nodes/ pins the matching `dora-rs` API to the same
+# commit via [tool.uv.sources].
+[project]
+name = "dora-claude"
+version = "0.1.0"
+description = "dora-rs robot-control stack — workspace root."
+requires-python = ">=3.11"
+dependencies = [
+    "pyright>=1.1.410",
+    "ruff>=0.15.18",
+]
+
+[tool.uv]
+package = false

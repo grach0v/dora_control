@@ -1,0 +1,154 @@
+# LOCAL Trossen stationary teleop + recording in the MuJoCo sim.
+#
+# web-controller --command(cartesian bundle)--> pinocchio (IK + safety) --<part>_joint_target-->
+# mujoco-sim (physics + cameras) --state(bundle) + <part>_tcp_pose + cam_*--> recorders, with the
+# sim state fed back to pinocchio and pinocchio's model-frame FK poses anchoring the controller.
+#
+#   build: uv run dora build dataflows/trossen_sim.yml
+#   run:   uv run dora start --attach dataflows/trossen_sim.yml
+#   then open http://127.0.0.1:8421
+
+nodes:
+  - id: manager
+    build: uv sync --project nodes/manager
+    path: nodes/manager/.venv/bin/manager
+    inputs:
+      mujoco: mujoco/node_state
+      pinocchio: pinocchio/node_state
+      controller: controller/robot_command   # Disconnect button -> program_state disconnect
+    outputs: [program_state]
+    env:
+      MODE: "teleop"
+      PRODUCERS: "mujoco,pinocchio"
+
+  - id: controller
+    build: uv sync --project nodes/web-controller
+    path: nodes/web-controller/.venv/bin/web-controller
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      # Current-pose feedback = pinocchio's model-frame FK of the MEASURED joints (the same frame
+      # it solves IK in), not the sim's raw tcp_pose — so seeding/anchoring the target never lunges.
+      left_tcp_pose:       { source: pinocchio/left_measured_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:      { source: pinocchio/right_measured_pose, queue_size: 1, queue_policy: drop_oldest }
+      left_solution_pose:  { source: pinocchio/left_solution_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_solution_pose: { source: pinocchio/right_solution_pose, queue_size: 1, queue_policy: drop_oldest }
+    outputs: [command, episode_control, robot_command, node_state]
+    env:
+      MODE: "manual"
+      SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
+      COMMAND_LAYOUT: "cartesian"
+      HOST: "127.0.0.1"
+      PORT: "8421"
+
+  - id: pinocchio
+    build: uv sync --project nodes/pinocchio
+    path: nodes/pinocchio/.venv/bin/pinocchio-node
+    # Event-driven: solves on each `command`, using the latest `state` as feedback.
+    inputs:
+      command: { source: controller/command, queue_size: 1, queue_policy: drop_oldest }
+      state:   { source: mujoco/state,       queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
+              left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
+    env:
+      MODE: "control"
+      SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
+      COMMAND_LAYOUT: "cartesian"
+
+  - id: mujoco
+    build: uv sync --project nodes/mujoco-sim
+    path: nodes/mujoco-sim/.venv/bin/mujoco-sim
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      left_joint_target:          { source: pinocchio/left_joint_target,          queue_size: 1, queue_policy: drop_oldest }
+      left_gripper_joint_target:  { source: pinocchio/left_gripper_joint_target,  queue_size: 1, queue_policy: drop_oldest }
+      right_joint_target:         { source: pinocchio/right_joint_target,         queue_size: 1, queue_policy: drop_oldest }
+      right_gripper_joint_target: { source: pinocchio/right_gripper_joint_target, queue_size: 1, queue_policy: drop_oldest }
+    outputs:
+      - state
+      - left_tcp_pose
+      - right_tcp_pose
+      - cam_high
+      - cam_low
+      - cam_left_wrist
+      - cam_right_wrist
+      - node_state
+    env:
+      MODE: "sim"
+      SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
+      CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
+      WIDTH: "640"
+      HEIGHT: "480"
+      ENCODING: "jpeg"
+      # No STEPS_PER_TICK: the sim auto-paces physics to wall-clock (~realtime) on its own.
+
+  - id: rerun-view
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_high:        { source: mujoco/cam_high,        queue_size: 1, queue_policy: drop_oldest }
+      cam_low:         { source: mujoco/cam_low,         queue_size: 1, queue_policy: drop_oldest }
+      cam_left_wrist:  { source: mujoco/cam_left_wrist,  queue_size: 1, queue_policy: drop_oldest }
+      cam_right_wrist: { source: mujoco/cam_right_wrist, queue_size: 1, queue_policy: drop_oldest }
+      left_tcp_pose:   { source: mujoco/left_tcp_pose,   queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:  { source: mujoco/right_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      state:           { source: mujoco/state,           queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "trossen_sim"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      VISUALIZE__CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
+      VISUALIZE__SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
+
+  - id: rerun-record
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_high: mujoco/cam_high
+      cam_low: mujoco/cam_low
+      cam_left_wrist: mujoco/cam_left_wrist
+      cam_right_wrist: mujoco/cam_right_wrist
+      left_tcp_pose: mujoco/left_tcp_pose
+      right_tcp_pose: mujoco/right_tcp_pose
+      state: mujoco/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      MODE: "record"
+      APP_ID: "trossen_sim"
+      RECORD__RRD_DIR: "out/rerun_trossen_sim"
+      RECORD__FPS: "30"
+      RECORD__IMAGE_MODE: "h264"
+
+  - id: lerobot
+    build: uv sync --project nodes/lerobot
+    path: nodes/lerobot/.venv/bin/lerobot-node
+    # Records cameras + the whole-robot state vector (observation.state) + the command vector
+    # (action). lerobot concatenates its configured inputs; one bundle each.
+    inputs:
+      cam_high: mujoco/cam_high
+      cam_low: mujoco/cam_low
+      cam_left_wrist: mujoco/cam_left_wrist
+      cam_right_wrist: mujoco/cam_right_wrist
+      state: mujoco/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      REPO_ID: "test/trossen_sim"
+      REPO_ROOT: "out/lerobot_trossen_sim"
+      FPS: "30"
+      CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
+      IMAGE_WIDTH: "640"
+      IMAGE_HEIGHT: "480"
+      STATE_INPUTS: "state"
+      STATE_DIM: "14"
+      ACTION_INPUTS: "command"
+      ACTION_DIM: "16"

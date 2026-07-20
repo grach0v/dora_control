@@ -1,0 +1,37 @@
+[project]
+name = "lerobot-node"
+version = "0.0.0"
+description = "Dora node for LeRobot: record a synced episode (cameras + state + action) into a LeRobotDataset. Modes selected by MODE (record today)."
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "dora-rs",
+    "numpy",
+    "opencv-python-headless",  # jpeg frame decode (matches lerobot's opencv; avoids a 2nd ffmpeg)
+    "pyarrow",
+    "pydantic-settings",
+    "lerobot",
+]
+
+[dependency-groups]
+dev = ["pytest"]
+
+# Package is `lerobot_node`, NOT `lerobot`: a `lerobot` package would shadow the
+# LeRobot SDK, breaking `from lerobot.datasets... import LeRobotDataset`. The
+# console script is `lerobot-node`, NOT `lerobot`: the lerobot package ships its
+# own `lerobot` script, so ours would collide (whichever installs last wins, and
+# the dataflow would launch the wrong binary). Same lesson as the rerun node.
+[project.scripts]
+lerobot-node = "lerobot_node.main:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["lerobot_node"]
+
+[tool.uv.sources]
+# Pinned 1.0.0-rc1 commit (kill->orphan->CPU-spin + macOS run-hang fixes);
+# no PyPI wheel exists past 0.5.0. CLI comes from scripts/build-dora.sh.
+dora-rs = { git = "https://github.com/dora-rs/dora", rev = "8556977ed2c4f56624e08b90dfc7dc8f54897bd9", subdirectory = "apis/python/node" }
