@@ -10,7 +10,7 @@ dependencies = [
     "opencv-python-headless",  # jpeg frame decode (matches lerobot's opencv; avoids a 2nd ffmpeg)
     "pyarrow",
     "pydantic-settings",
-    "lerobot",
+    "lerobot[dataset]",  # the dataset extra carries the LeRobotDataset deps (a bare `lerobot` fails on a fresh install)
 ]
 
 [dependency-groups]

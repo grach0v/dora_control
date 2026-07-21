@@ -21,7 +21,7 @@ from dora import Node
 from genesis_node.node_config import GenesisConfig
 from genesis_node.sim import GenesisWorld, load_descriptor
 
-logger = logging.getLogger("genesis")
+logger = logging.getLogger("genesis-node")
 
 
 class SimMode:

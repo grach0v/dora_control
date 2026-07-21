@@ -14,10 +14,9 @@ class SyncConfig(BaseSettings):
     # values concatenated IN THIS ORDER — the consumer's descriptor layout must match it.
     inputs: Annotated[list[str], NoDecode]
     output: str = "bundle"            # output id of the concatenated bundle
-    # Warn (log) if any input's latest value is older than this (s) at emit time. A producer
-    # that stalls or falls behind the others shows up as *its* age being high (so this also
-    # catches a phase skew); all ages high = everything froze. None = no staleness warning.
-    # Set it in the dataflow to ~a few frame periods (e.g. 3 / FPS).
+    # Warn (log) if the SPREAD between the newest and oldest component timestamps exceeds
+    # this (s) at emit time — a producer lagging its peers shows as the spread. None = no
+    # warning. Set it in the dataflow to ~a few frame periods (e.g. 3 / FPS).
     max_stale: float | None = None
 
     @field_validator("inputs", mode="before")

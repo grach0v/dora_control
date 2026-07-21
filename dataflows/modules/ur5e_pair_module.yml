@@ -61,7 +61,6 @@ nodes:
     build: uv sync --project nodes/sync
     path: ../nodes/sync/.venv/bin/sync-node
     inputs:
-      tick: dora/timer/millis/33
       program_state: _mod/program_state
       left_joint_state:    { source: arm_left/left_joint_state,     queue_size: 1, queue_policy: drop_oldest }
       left_gripper_state:  { source: arm_left/left_gripper_state,   queue_size: 1, queue_policy: drop_oldest }

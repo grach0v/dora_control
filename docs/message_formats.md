@@ -100,8 +100,9 @@ do not require metadata.
   `<part>_tcp_pose`, `cam_*`, `node_state`; consume per-part `<part>_joint_target`. (Whole-scene;
   no IK — pinocchio owns it.)
 - **sync** → a concatenated bundle (`command` or `state`), emitted the moment every configured
-  input has a fresh sample (its tick is only a staleness watchdog); consumes the configured
-  per-node inputs. Used on the real robot to bundle the per-arm nodes (no built-in dora join).
+  input has a fresh sample (no tick; component-timestamp skew is warned at emit); consumes the
+  configured per-node inputs. Used on the real robot to bundle the per-arm nodes (no built-in
+  dora join).
 - **trossen-robot** → one thing's `<name>_tcp_pose`, `<name>_joint_state`, `<name>_gripper_state`,
   `node_state`; consumes `<name>_joint_target` + `<name>_gripper_joint_target` (from
   pinocchio — joint control only, pinocchio owns IK) and `robot_command`. A `leader` publishes its

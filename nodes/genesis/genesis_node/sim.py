@@ -9,6 +9,7 @@ per-part ee poses. Genesis does no IK (pinocchio owns it). Not a shared library 
 
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 import cv2
@@ -18,6 +19,8 @@ import yaml
 from scipy.spatial.transform import Rotation
 
 from genesis_node.node_config import GenesisConfig
+
+logger = logging.getLogger("genesis-node")
 
 
 def load_descriptor(scene_path: str) -> dict:
@@ -59,6 +62,10 @@ class GenesisWorld:
 
         backend = {"cpu": gs.cpu, "gpu": gs.gpu, "metal": gs.metal, "": gs.gpu}[self.cfg.backend]
         gs.init(backend=backend, logging_level="warning")
+        # Say what genesis actually resolved (BACKEND="" asks for gpu; taichi can still fall
+        # back) — the first thing to check when the sim seems to run on the wrong device.
+        logger.info("genesis: requested backend %r -> resolved %s, device %r",
+                    self.cfg.backend or "gpu", gs.backend, gs.device)
         directional = gs.options.vis.DirectionalLight
         vis = gs.options.VisOptions(
             ambient_light=(0.6, 0.6, 0.6), shadow=False,
