@@ -49,9 +49,9 @@ Shared `APP_ID` is top-level; mode-specific params are namespaced under the mode
 The `record` mode emits `node_state` edges (ready / episode saved); the
 `visualize` mode is a pure sink and emits nothing.
 
-## Test
+## Tests
 
-```sh
-uv run pytest -q                       # build-helper unit tests run anywhere
-uv run pytest -q tests/test_record.py  # dora-run integration (needs a working dora daemon)
-```
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

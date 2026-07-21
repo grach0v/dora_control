@@ -39,11 +39,9 @@ may fall behind should wire `image` `queue_size: 1` + `queue_policy: drop_oldest
 | `ENCODING`     | `rgb8`  | `rgb8` or `jpeg` |
 | `JPEG_QUALITY` | `90`    | JPEG quality when `encoding: jpeg` |
 
-## Test
+## Tests
 
-```bash
-cd nodes/opencv-camera && uv run pytest tests -q
-```
-
-The tests drive the real node against a generated video file, so they run
-headless without a physical camera.
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

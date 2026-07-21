@@ -1,0 +1,19 @@
+// Zenoh config for the OPERATOR daemon when robot + operator run on the SAME box.
+//
+// Same as operator-trossen-1.json5 but connects over loopback instead of the
+// Tailscale address. robot.json5 already listens on tcp/[::]:5456, which covers
+// 127.0.0.1, so the robot side needs no change. This lets you run the remote-
+// style two-daemon layout on one machine — e.g. a dataflow that swaps the real
+// trossen-robot node for trossen-sim but still deploys across `robot`/`operator`
+// machine ids, exercising the full zenoh path locally.
+//
+// Use (two terminals on one machine):
+//   ZENOH_CONFIG=dataflows/remote/zenoh/robot.json5 \
+//     uv run dora daemon --machine-id robot
+//   ZENOH_CONFIG=dataflows/remote/zenoh/operator-localhost.json5 \
+//     uv run dora daemon --machine-id operator --coordinator-addr 127.0.0.1
+{
+  mode: "peer",
+  connect: { endpoints: ["tcp/127.0.0.1:5456"] },
+  scouting: { multicast: { enabled: false } },
+}

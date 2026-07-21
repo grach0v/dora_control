@@ -10,8 +10,8 @@
 # (gripper pinch) or is zeroed — otherwise IK targets are in the wrong frame and the arm drifts.
 # Keep both hardware e-stops in hand.
 #
-#   build: uv run --env-file dataflows/robot_envs/ur5-corner.env dora build  dataflows/ur5e_real.yml
-#   run:   uv run --env-file dataflows/robot_envs/ur5-corner.env dora start --attach dataflows/ur5e_real.yml
+#   build: uv run --env-file dataflows/robot_envs/ur5-corner.env dora build  dataflows/ur5e_dual_real.yml
+#   run:   uv run --env-file dataflows/robot_envs/ur5-corner.env dora start --attach dataflows/ur5e_dual_real.yml
 #   Then open http://127.0.0.1:8421 . First action: a single small +Z nudge on ONE arm — confirm it
 #   moves the expected direction/amount before anything else. The red Disconnect button stops both
 #   arms in place and ends the run; Ctrl-C is the fallback.
@@ -89,7 +89,7 @@ nodes:
       program_state: manager/program_state
     env:
       MODE: "visualize"
-      APP_ID: "ur5e_real"
+      APP_ID: "ur5e_dual_real"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__CAMERAS: ""
       VISUALIZE__MEMORY_LIMIT: "2GB"

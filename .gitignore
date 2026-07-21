@@ -13,7 +13,6 @@ dataflows/**/_*.yml
 
 # host-specific deploy configs — commit the *.example templates instead
 *.env
-dataflows/zenoh/*.json5
 
 # personal scratch / review notes
 comments.md

@@ -44,7 +44,7 @@ class ControlMode:
         self._ready = False
         self.status = ""
         # Operating stage from the manager's program_state. In `homing` the command bundle is
-        # ignored and each state message ramps the robot toward the descriptor home
+        # ignored and each state message ramps the robot toward the model home
         # instead (status `homed` on arrival — the manager advances the stage on that).
         self.stage = "start"
         # The homing ramp's COMMANDED config: seeded from the measured state on the first
@@ -122,10 +122,10 @@ class ControlMode:
         if self.stage == "homing":
             self._homing_step()
 
-    # --- homing stage: slow ramp to the descriptor home ------------------------------
+    # --- homing stage: slow ramp to the model home (MJCF `home` keyframe) ------------
 
     def _homing_step(self) -> None:
-        """One slow step of the COMMANDED config toward the descriptor home, through the
+        """One slow step of the COMMANDED config toward the model home, through the
         same collision gate as normal control. Driven by `state` messages (~the robot
         rate), so the ramp speed is homing_max_step * state rate. `homed` is judged on
         the MEASURED state, so the manager only advances once the robot actually arrived."""
@@ -139,7 +139,7 @@ class ControlMode:
                 if worst > self.cfg.homing_max_travel:
                     self._set_status(
                         f"homing refused: {part} needs {worst:.2f} rad > max "
-                        f"{self.cfg.homing_max_travel} — pre-pose the arm or fix the descriptor home")
+                        f"{self.cfg.homing_max_travel} — pre-pose the arm or fix the model home keyframe")
                     return
             self._homing_q = self.q.copy()  # seed the ramp where the robot measurably is
         candidate_q = self._homing_q.copy()

@@ -1,8 +1,8 @@
 """Optional 3D robot view for the rerun node (within-node only; CLAUDE.md).
 
-When ``VISUALIZE__SCENE`` is set, the node loads the descriptor's robot model once
-(MuJoCo, ``model_no_floor`` — robot + bench, no sim props or floor) and logs it the
-idiomatic rerun way (see docs "Transforms & Coordinate Frames" / the URDF example):
+When ``VISUALIZE__SCENE`` is set, the node loads the descriptor's ``model`` once
+(MuJoCo) and logs it the idiomatic rerun way (see docs "Transforms & Coordinate
+Frames" / the URDF example):
 
   * entity paths MIRROR the kinematic tree (``robot/table/left_base/left_shoulder_link/…``);
   * each geom's mesh + its body-local pose are logged ONCE as static children of the body;
@@ -18,7 +18,8 @@ skipped entirely (rerun holds the last value). Jogging one arm ≈ a handful of 
 idle ≈ zero — same picture, orders of magnitude fewer per-frame log calls, full 30 fps.
 
 Driven entirely by the joint ``state`` stream (FK only, no IK), so it works the same in sim
-and on the real robot. Manipulands aren't in ``model_no_floor`` — robot-only view.
+and on the real robot. Only mesh/box geoms are logged (planes/props are skipped) — a
+robot+workstation view.
 """
 
 from __future__ import annotations
@@ -45,16 +46,10 @@ class RobotScene:
         path = Path(scene_path).resolve()
         desc = yaml.safe_load(path.read_text())
         root = path.parent.parent
-        model_file = str(root / desc["model_no_floor"])
+        model_file = str(root / desc["model"])
         self.model = mujoco.MjModel.from_xml_path(model_file)
         self.data = mujoco.MjData(self.model)
         self.prefix = entity_prefix
-        # rerun 3D view only: pose inert/undriven bodies at a rest config so the static view is
-        # sensible. In a single-arm flow the other arm is never in the state stream, so it would
-        # otherwise sit at the bare zero pose. Set once; transforms() only overwrites DRIVEN joints.
-        for rest in desc.get("view_rest_joints", []):
-            for jn, v in zip(rest["joints"], rest["angles"]):
-                self.data.qpos[self.model.jnt_qposadr[self._jid(jn)]] = v
         mujoco.mj_kinematics(self.model, self.data)
 
         # state-vector layout -> qpos addresses, per part, in state_layout order.

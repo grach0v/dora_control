@@ -1,8 +1,9 @@
 """Config for the Genesis sim node — pydantic-settings from the environment.
 
-Generic: the robot (parts, joints, ee, state-vector layout, objects, cameras) all come from
-the scene descriptor named by ``SCENE``. Consumes per-part `<part>_joint_target`, emits the
-whole-robot `state` bundle + per-part `<part>_tcp_pose` + cameras.
+Generic: the robot (parts, joints, ee, state-vector layout) comes from the scene descriptor
+named by ``SCENE``; cameras come from the MJCF <camera> elements. Consumes per-part
+`<part>_joint_target`, emits the whole-robot `state` bundle + per-part `<part>_tcp_pose` +
+cameras.
 """
 
 from __future__ import annotations
@@ -14,8 +15,7 @@ from pydantic_settings import BaseSettings, NoDecode
 
 
 class GenesisConfig(BaseSettings):
-    # `sim` today; `twin`/`force_preview` are reserved (MODES raises if selected).
-    mode: Literal["sim", "twin", "force_preview"] = "sim"
+    mode: Literal["sim"] = "sim"
     scene: str                               # required — path to the scene descriptor
     cameras: Annotated[list[str], NoDecode] = ["cam_high", "cam_low", "cam_left_wrist", "cam_right_wrist"]
     width: int = 640

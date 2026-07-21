@@ -12,6 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import cv2
+import mujoco
 import numpy as np
 import yaml
 from scipy.spatial.transform import Rotation
@@ -52,7 +53,6 @@ class GenesisWorld:
         self.cfg = cfg
         self.desc = descriptor
         self.timestep = 0.01  # physics dt (s); the mode paces substeps to wall-clock with it
-        self._built = False
 
     def build(self) -> None:
         import genesis as gs
@@ -68,34 +68,55 @@ class GenesisWorld:
         )
         self.scene = gs.Scene(show_viewer=not self.cfg.headless,
                               sim_options=gs.options.SimOptions(dt=self.timestep), vis_options=vis)
-        self.robot = self.scene.add_entity(gs.morphs.MJCF(file=str(self.desc["_root"] / self.desc["model_no_floor"])))
+        self.robot = self.scene.add_entity(gs.morphs.MJCF(file=str(self.desc["_root"] / self.desc["model"])))
         self.scene.add_entity(gs.morphs.Plane())
-        self._add_objects(gs)
         self._cams = self._add_cameras()
         self.scene.build()
         self._index()
         self._init_pose()
-        self._built = True
-
-    def _add_objects(self, gs) -> None:
-        for obj in self.desc.get("objects", []):
-            pos = tuple(obj["pos"])
-            if obj["type"] == "box":
-                self.scene.add_entity(gs.morphs.Box(size=tuple(obj["size"]), pos=pos))
-            elif obj["type"] == "sphere":
-                self.scene.add_entity(gs.morphs.Sphere(radius=float(obj["size"][0]), pos=pos))
-            else:
-                raise ValueError(f"unknown object type {obj['type']!r}")
+        for spec in self._cams.values():  # resolve moving cameras' genesis links (post-build)
+            spec["link"] = self.robot.get_link(spec["link_name"]) if spec["link_name"] else None
 
     def _add_cameras(self) -> dict:
-        by_name = {c["name"]: c for c in self.desc["cameras"]}
+        """Cameras come from the MJCF <camera> elements — the model is the single source of
+        truth (same names mujoco-sim renders and rerun's 3D view frustums use); the scene
+        descriptor carries no camera list. mujoco (already in this venv via genesis) parses
+        them exactly (quats, defaults, fovy). A camera on a MOVING body follows that body's
+        genesis link each render; one on a static body (table mounts) is baked at its rest
+        world pose. MuJoCo cameras look along -Z with +Y up."""
+        m = mujoco.MjModel.from_xml_path(str(self.desc["_root"] / self.desc["model"]))
+        d = mujoco.MjData(m)
+        mujoco.mj_forward(m, d)
+        # Also read the cell home while the model is loaded: the MJCF `home` keyframe is
+        # the source of truth (no home in the descriptor). {joint name: home value}.
+        k = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_KEY, "home")
+        if k < 0:
+            raise ValueError(f"no `home` keyframe in {self.desc['model']!r}")
+        self._home = {mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_JOINT, j):
+                      float(m.key_qpos[k][m.jnt_qposadr[j]]) for j in range(m.njnt)}
+        available = [mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_CAMERA, c) for c in range(m.ncam)]
         cams = {}
         for name in self.cfg.cameras:
-            spec = by_name[name]
-            cams[name] = (self.scene.add_camera(
-                res=(self.cfg.width, self.cfg.height), pos=tuple(spec.get("pos", [1, 0, 0.5])),
-                lookat=tuple(spec.get("lookat", [0, 0, 0])), fov=float(spec.get("fov", 60)), GUI=False,
-            ), spec)
+            cid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, name)
+            if cid < 0:
+                raise ValueError(f"camera {name!r} not in the MJCF (has: {available})")
+            body = int(m.cam_bodyid[cid])
+            movable, b = False, body
+            while b != 0:  # any joint between the camera's body and the world?
+                if m.body_jntnum[b] > 0:
+                    movable = True
+                    break
+                b = int(m.body_parentid[b])
+            local_R = np.zeros(9)
+            mujoco.mju_quat2Mat(local_R, m.cam_quat[cid])
+            cams[name] = {
+                "cam": self.scene.add_camera(res=(self.cfg.width, self.cfg.height),
+                                             fov=float(m.cam_fovy[cid]), GUI=False),
+                # moving: body-local pose + the genesis link to follow; static: rest world pose
+                "link_name": mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_BODY, body) if movable else None,
+                "pos": m.cam_pos[cid].copy() if movable else d.cam_xpos[cid].copy(),
+                "R": local_R.reshape(3, 3).copy() if movable else d.cam_xmat[cid].reshape(3, 3).copy(),
+            }
         return cams
 
     def _dof(self, name):
@@ -107,28 +128,27 @@ class GenesisWorld:
         for name, p in self.desc["parts"].items():
             state_dofs = [self._dof(jn) for jn in p["joints"]]
             if p.get("type") == "gripper":   # genesis sets dofs directly: drive ALL carriages
-                ctrl_dofs = [self._dof(jn) for jn in joint_names
-                             if jn.startswith(p["prefix"]) and "carriage" in jn]
+                ctrl_joints = [jn for jn in joint_names
+                               if jn.startswith(p["prefix"]) and "carriage" in jn]
             else:
-                ctrl_dofs = state_dofs
+                ctrl_joints = list(p["joints"])
             ee = p.get("ee_link")
             self.parts[name] = {
-                "state_dofs": state_dofs, "ctrl_dofs": ctrl_dofs,
+                "state_dofs": state_dofs,
+                "ctrl_dofs": [self._dof(jn) for jn in ctrl_joints],
+                "ctrl_joints": ctrl_joints,
                 "ee_link": self.robot.get_link(ee) if ee else None,
                 "ee_offset": np.asarray(p.get("ee_offset", [0, 0, 0]), dtype=float),
             }
 
     def _init_pose(self) -> None:
+        """Gains per part + start every part at the cell home (MJCF `home` keyframe)."""
         for name, part in self.parts.items():
-            home = self.desc["parts"][name].get("home")
-            if home is None:
-                continue
             ctrl = part["ctrl_dofs"]
             kp = 1000.0 if self.desc["parts"][name].get("type") == "gripper" else 200.0
             self.robot.set_dofs_kp(np.full(len(ctrl), kp), ctrl)
             self.robot.set_dofs_kv(np.full(len(ctrl), kp / 20.0), ctrl)
-            pos = np.asarray(home, dtype=float)
-            pos = pos if len(pos) == len(ctrl) else np.full(len(ctrl), pos[0])
+            pos = np.array([self._home[jn] for jn in part["ctrl_joints"]])
             self.robot.set_dofs_position(pos, ctrl)
             self.robot.control_dofs_position(pos, ctrl)
 
@@ -167,14 +187,16 @@ class GenesisWorld:
 
     def render(self) -> dict:
         frames = {}
-        for name, (cam, spec) in self._cams.items():
-            mount = spec.get("mount")
-            if mount is not None:
-                link = self.parts[mount]["ee_link"]
-                base = _np(link.get_pos())
-                R = _quat_wxyz_to_R(_np(link.get_quat()))
-                cam.set_pose(pos=base + R @ np.asarray(spec["pos"]), lookat=base + R @ np.asarray(spec["lookat"]))
-            frames[name] = encode(np.asarray(cam.render()[0]), self.cfg)
+        for name, spec in self._cams.items():
+            if spec["link"] is not None:  # body-mounted: compose body-local pose onto the link
+                base = _np(spec["link"].get_pos())
+                link_R = _quat_wxyz_to_R(_np(spec["link"].get_quat()))
+                pos, R = base + link_R @ spec["pos"], link_R @ spec["R"]
+            else:                          # static mount: rest world pose
+                pos, R = spec["pos"], spec["R"]
+            # MuJoCo camera frame: -Z view direction, +Y up.
+            spec["cam"].set_pose(pos=pos, lookat=pos - R[:, 2], up=R[:, 1])
+            frames[name] = encode(np.asarray(spec["cam"].render()[0]), self.cfg)
         return frames
 
     def close(self) -> None:

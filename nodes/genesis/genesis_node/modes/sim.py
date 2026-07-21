@@ -62,9 +62,6 @@ class SimMode:
     def handle(self, event) -> bool:
         return bool(self._handlers[event["id"]](event))  # KeyError on an unwired input id = loud
 
-    def step(self) -> None:
-        pass  # the whole cycle runs on the tick (maybe_publish)
-
     def maybe_publish(self) -> None:
         if not self._publish_now:
             return

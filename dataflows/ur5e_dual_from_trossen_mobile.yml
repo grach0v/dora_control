@@ -17,7 +17,7 @@
 # Machines: `robot` = the UR host (ur5-corner), `operator` = the leader host (trossen-mobile);
 # the coordinator (your laptop) runs no nodes. Load BOTH host env-files:
 #   uv run --env-file dataflows/robot_envs/ur5-corner.env --env-file dataflows/robot_envs/trossen-mobile.env \
-#     dora build dataflows/remote_ur5e_from_trossen.yml --coordinator-addr 127.0.0.1
+#     dora build dataflows/ur5e_dual_from_trossen_mobile.yml --coordinator-addr 127.0.0.1
 #   (same for `dora start --attach ...`; runbook in dataflows/README.md)
 
 nodes:

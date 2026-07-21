@@ -1,9 +1,5 @@
-"""The dora event loop, factored out of main.py so it imports no hardware SDK.
-
-`main.py` (which builds the `ur_rtde`-bound driver) and the unit tests both import
-`run` from here; keeping it SDK-free is what lets the tests drive a `FollowerMode`
-with a fake driver on a host without `ur_rtde` (e.g. macOS — see the node README).
-"""
+"""The dora event loop, factored out of main.py so it imports no hardware SDK
+(`ur_rtde` has no macOS wheel — this keeps the loop/mode importable everywhere)."""
 
 from __future__ import annotations
 

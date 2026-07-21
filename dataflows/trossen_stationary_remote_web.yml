@@ -1,11 +1,21 @@
-# REMOTE web teleop + episode recording for the bimanual UR5e cell.
+# REMOTE web teleop + episode recording for the bimanual Trossen stationary cell.
 #
-# Same graph as remote_trossen_web.yml with the UR5e cell: followers module = 2x ur5e-robot
-# (servoJ) + state_sync. Set ${LEFT_UR_IP}/${RIGHT_UR_IP} + camera serials in
-# dataflows/robot_envs/ur5-corner.env; daemon networking in dataflows/README.md.
+#   machine `robot`    — followers module (2x trossen-robot + state_sync) + pinocchio +
+#                        camera rig (4x RealSense) + both recorders (data is written next
+#                        to the cameras, keeping heavy video off the network).
+#   machine `operator` — web-controller (browser Cartesian + Start/Finish/Task/Disconnect)
+#                        + live rerun view.
 #
-#   uv run --env-file dataflows/robot_envs/ur5-corner.env \
-#     dora build dataflows/remote_ur5e_web.yml --coordinator-addr <robot-addr>
+# web-controller --command(cartesian bundle)--> pinocchio (IK + safety) --<part>_joint_target-->
+# followers; the followers' bundled `state` feeds back to pinocchio + recording. Disconnect
+# rides `robot_command`.
+#
+# Robot-specific values come from dataflows/robot_envs/<host>.env (expanded when the YAML is
+# parsed → run dora build/start with `uv run --env-file`). Daemon networking: --zenoh-peer,
+# see dataflows/README.md.
+#
+#   uv run --env-file dataflows/robot_envs/trossen-1.env \
+#     dora build dataflows/trossen_stationary_remote_web.yml --coordinator-addr <robot-addr>
 #   (same for `dora start --attach ...`)
 
 nodes:
@@ -35,8 +45,7 @@ nodes:
     inputs:
       tick: dora/timer/millis/33
       program_state: manager/program_state
-      # Anchor targets in pinocchio's model frame (FK of measured joints), NOT the UR driver's
-      # getActualTCPPose (base frame) — the wrong frame makes IK lunge the arm on startup.
+      # Anchor targets in pinocchio's model frame (FK of measured joints) — never the raw arm TCP.
       left_tcp_pose:       { source: pinocchio/left_measured_pose,  queue_size: 1, queue_policy: drop_oldest }
       right_tcp_pose:      { source: pinocchio/right_measured_pose, queue_size: 1, queue_policy: drop_oldest }
       left_solution_pose:  { source: pinocchio/left_solution_pose,  queue_size: 1, queue_policy: drop_oldest }
@@ -44,7 +53,7 @@ nodes:
     outputs: [command, episode_control, robot_command, node_state]
     env:
       MODE: "manual"
-      SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"
+      SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
       COMMAND_LAYOUT: "cartesian"
       HOST: "127.0.0.1"
       PORT: "8421"
@@ -59,11 +68,11 @@ nodes:
       program_state: manager/program_state
     outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
               left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
-    env: { MODE: "control", SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml", COMMAND_LAYOUT: "cartesian" }
+    env: { MODE: "control", SCENE: "assets/trossen_stationary/scenes/workstation.yaml", COMMAND_LAYOUT: "cartesian" }
 
-  # 2x ur5e-robot followers + state_sync (see modules/ur5e_pair_module.yml).
+  # 2x trossen-robot followers + state_sync (see modules/trossen_wxai_pair_module.yml).
   - id: followers
-    module: modules/ur5e_pair_module.yml
+    module: modules/trossen_wxai_pair_module.yml
     _unstable_deploy: { machine: robot, working_dir: ../.. }
     inputs:
       program_state: manager/program_state
@@ -73,10 +82,10 @@ nodes:
       right_gripper_joint_target: pinocchio/right_gripper_joint_target
       robot_command: controller/robot_command
 
-  # 4x RealSense (see modules/camera_rig_module.yml); serials from the host env-file.
+  # 4x RealSense (see modules/trossen_stationary_rig_module.yml); serials from the host env-file.
   # Cameras self-pace at their sensor FPS (30, matching the recorders' FPS below).
   - id: cams
-    module: modules/camera_rig_module.yml
+    module: modules/trossen_stationary_rig_module.yml
     _unstable_deploy: { machine: robot, working_dir: ../.. }
     inputs:
       program_state: manager/program_state
@@ -98,8 +107,8 @@ nodes:
       program_state: manager/program_state
     outputs: [node_state]
     env:
-      REPO_ID: "ur5e/teleop_web"
-      REPO_ROOT: "out/lerobot_ur5e_real"
+      REPO_ID: "trossen/teleop_web"
+      REPO_ROOT: "out/lerobot_trossen_stationary_real"
       FPS: "30"
       CAMERAS: "cam_static1,cam_static2,cam_wrist1,cam_wrist2"
       IMAGE_WIDTH: "640"
@@ -127,8 +136,8 @@ nodes:
     outputs: [node_state]
     env:
       MODE: "record"
-      APP_ID: "ur5e_web"
-      RECORD__RRD_DIR: "out/rerun_ur5e_real"
+      APP_ID: "trossen_web"
+      RECORD__RRD_DIR: "out/rerun_trossen_stationary_real"
       RECORD__FPS: "30"
       RECORD__IMAGE_MODE: "h264"
 
@@ -143,13 +152,10 @@ nodes:
       cam_wrist2:  { source: cams/cam_wrist2_image,  queue_size: 1, queue_policy: drop_oldest }
       left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
       right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
-      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
       program_state: manager/program_state
     env:
       MODE: "visualize"
-      APP_ID: "ur5e_web"
+      APP_ID: "trossen_web"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__CAMERAS: "cam_static1,cam_static2,cam_wrist1,cam_wrist2"
       VISUALIZE__MEMORY_LIMIT: "2GB"
-      # 3D robot view from the real arms' joint state (objects don't matter — robot only).
-      VISUALIZE__SCENE: "assets/ur5e_dual/scenes/workstation_ur5e.yaml"

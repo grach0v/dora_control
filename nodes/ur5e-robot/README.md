@@ -4,7 +4,7 @@ Real-robot node for one **UR5e + Robotiq 2F-85** arm of the bimanual UR5e
 workstation. Drives the arm over RTDE (`ur_rtde`) and the gripper over the Robotiq
 URCap socket, mirroring the sim nodes' per-arm stream interface so sim and real are
 swappable. One node = one arm; the bimanual cell runs two (`NAME=left`, `NAME=right`),
-composed in `dataflows/ur5e_real.yml` and the `dataflows/remote_ur5e_*.yml` flows.
+composed in `dataflows/ur5e_dual_real.yml` and the other `dataflows/ur5e_dual_*.yml` flows.
 
 **Joint control only.** pinocchio owns IK + collision safety and emits per-arm
 `<name>_joint_target`; this node streams them via `servoJ`. There is no Cartesian /

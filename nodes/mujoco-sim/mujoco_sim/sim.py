@@ -112,12 +112,9 @@ class MujocoWorld:
                 "qpos": qpos, "act": act,
                 "ee_site": self._id(mujoco.mjtObj.mjOBJ_SITE, ee) if ee else None,
             }
-            home = p.get("home")
-            if home is not None:
-                for adr, v in zip(qpos, home):
-                    self.data.qpos[adr] = v
-                for a, v in zip(act, home):
-                    self.data.ctrl[a] = v
+        # Start at the cell home: the MJCF `home` keyframe sets qpos AND ctrl (the model
+        # is the source of truth; there is no home in the descriptor).
+        mujoco.mj_resetDataKeyframe(self.model, self.data, self._id(mujoco.mjtObj.mjOBJ_KEY, "home"))
         mujoco.mj_forward(self.model, self.data)
         self.state_layout = self.desc["state_layout"]
         self._renderer = CameraRenderer(self.model, self.data, self.data_lock, self.cfg)

@@ -4,25 +4,39 @@
 # each read it with their own small loader — no shared Python module (CLAUDE.md). It is
 # generic: a different robot/setup is a new descriptor, not node edits.
 #
-# Generic vocabulary:
-#  * parts        — any actuated subsystem (arm / gripper / base / leg ...). `ee_frame` is
+# SCHEMA RULE (this file is the schema-by-example): the descriptor never DESCRIBES the
+# robot — it only NAMES things in the model and adds what the model cannot express.
+# Litmus test for any new key: "could every consumer get this from the MJCF with its
+# existing parser?" If yes, it does not belong here (cameras, objects, home poses, and
+# model_no_floor were all deleted under this rule — cameras/home live in the MJCF as
+# <camera> elements / the `home` keyframe). Any new key needs a one-line justification
+# comment right here.
+#
+# Generic vocabulary (with each key's reason to exist):
+#  * parts        — any actuated subsystem (arm / gripper / base / leg ...): the part
+#                   GROUPING + wire semantics that MJCF has no concept of. `ee_frame` is
 #                   OPTIONAL; a part without one is joint-only (no IK), e.g. a gripper.
+#                   `max_step` (max joint motion per control step) is a command rate
+#                   limit — MJCF has no such concept. `open`/`closed` VALUES mirror the
+#                   gripper actuator's ctrlrange, but MJCF cannot say WHICH END IS OPEN,
+#                   and their consumers (web-controller, retarget) are deliberately
+#                   model-parser-free YAML-only nodes.
 #  * constraints  — typed safety rules the gate enforces (plane / self_collision / ...).
 #  * (space, quantity) — every commanded/measured value is space ∈ {joint, cartesian} ×
 #                   quantity ∈ {position, velocity, effort}. Adding e.g. velocity is a tag
 #                   here + one dispatch branch in pinocchio, not new messages/config.
 #  * command_layouts / state_layout — ordered vectors (part, space, quantity, dim) that
-#                   define the flat `command`/`state` bundle messages. The dataflow picks a
-#                   command layout via COMMAND_LAYOUT (web=cartesian, leader/policy=joint).
+#                   define the flat `command`/`state` bundle messages — the wire contract,
+#                   the descriptor's core reason to exist. The dataflow picks a command
+#                   layout via COMMAND_LAYOUT (web=cartesian, leader/policy=joint).
 #
 # Paths are relative to the scene root (assets/trossen_stationary/).
 
 name: workstation
 
-# MuJoCo model. scene.xml includes stationary_ai.xml + a floor (sims). Pinocchio's MJCF
-# parser rejects the <include>, so it uses model_no_floor (robot + table, self-contained).
-model: model/stationary_ai/scene.xml
-model_no_floor: model/stationary_ai/stationary_ai.xml
+# One self-contained MuJoCo model (robot + table + scene dressing) parsed by EVERY
+# consumer — mujoco-sim, genesis, the rerun 3D view, and pinocchio.
+model: model/stationary_ai/stationary_ai.xml
 
 # Actuated subsystems. n (DOF) = len(joints). Names are the MuJoCo joint/site/actuator names.
 parts:
@@ -34,7 +48,6 @@ parts:
     ee_frame: follower_left_ee_site        # mujoco site / pinocchio frame at the gripper tip
     ee_link: follower_left_link_6          # genesis exposes links, not sites: ee = link + offset
     ee_offset: [0.156, 0.0, 0.0]
-    home: [0.0, 0.26, 0.26, 0.0, 0.0, 0.0]
     max_step: 0.25                         # max joint motion per control step (rad)
   left_gripper:
     type: gripper
@@ -43,7 +56,6 @@ parts:
     actuator: follower_left_gripper
     open: 0.044
     closed: 0.0
-    home: [0.044]
     max_step: 0.25                         # m / step (grippers are fast — different units than arms)
   right:
     type: arm
@@ -53,7 +65,6 @@ parts:
     ee_frame: follower_right_ee_site
     ee_link: follower_right_link_6
     ee_offset: [0.156, 0.0, 0.0]
-    home: [0.0, 0.26, 0.26, 0.0, 0.0, 0.0]
     max_step: 0.25                         # rad / step
   right_gripper:
     type: gripper
@@ -62,7 +73,6 @@ parts:
     actuator: follower_right_gripper
     open: 0.044
     closed: 0.0
-    home: [0.044]
     max_step: 0.25                         # m / step
 
 # Safety constraints the pinocchio gate enforces. Generic + extensible (add a type = add a
@@ -101,16 +111,6 @@ state_layout:
   - {part: right,         space: joint, quantity: position, dim: 6}
   - {part: right_gripper, space: joint, quantity: position, dim: 1}
 
-# Interactable props the sim nodes spawn (pinocchio ignores these). Resting on the table.
-objects:
-  - {name: cube, type: box,    size: [0.025, 0.025, 0.025], pos: [0.15, 0.15, 0.045], rgba: [0.8, 0.2, 0.2, 1.0]}
-  - {name: ball, type: sphere, size: [0.025],               pos: [0.15, -0.15, 0.045], rgba: [0.2, 0.6, 0.9, 1.0]}
-  - {name: box,  type: box,    size: [0.04, 0.04, 0.03],    pos: [0.0, 0.0, 0.05],     rgba: [0.2, 0.7, 0.3, 1.0]}
+# Cameras live in the MJCF <camera> elements, never here (the sims' CAMERAS env picks
+# which model cameras to publish).
 
-# Cameras the sim nodes render + publish (output id == name). Static cameras give world
-# pos+lookat; wrist cameras give `mount` (a part id) + pos/lookat in that part's ee_link frame.
-cameras:
-  - {name: cam_high,        pos: [-0.35, 0.0, 1.0],  lookat: [0.1, 0.0, 0.1],  fov: 65}
-  - {name: cam_low,         pos: [-0.38, 0.0, 0.10], lookat: [0.25, 0.0, 0.08], fov: 100}
-  - {name: cam_left_wrist,  mount: left,  pos: [0.05, 0.0, 0.05], lookat: [0.35, 0.0, 0.0], fov: 87}
-  - {name: cam_right_wrist, mount: right, pos: [0.05, 0.0, 0.05], lookat: [0.35, 0.0, 0.0], fov: 87}

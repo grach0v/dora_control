@@ -10,7 +10,7 @@
 # rejects module node paths outside the dataflow's directory — see dataflows/README.md.
 
 module:
-  name: camera_rig
+  name: trossen_stationary_rig
   inputs:
     - program_state
   outputs:

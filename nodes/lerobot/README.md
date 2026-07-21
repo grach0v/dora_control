@@ -79,13 +79,9 @@ edge names wired in the YAML.
       ACTION_DIM: "7"
 ```
 
-## Test
+## Tests
 
-`lerobot` is heavy (pulls torch/torchvision/torchcodec). The test runs a real
-dataflow with synthetic camera + state + action producers and asserts a dataset
-was written (meta/info.json with frames, a data parquet, and an .mp4):
-
-```bash
-uv sync --python 3.11
-uv run pytest tests -q
-```
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

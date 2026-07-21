@@ -1,0 +1,17 @@
+// Zenoh config for the daemon on a ROBOT host.
+//
+// dora >= 0.3.10 routes inter-daemon data over zenoh; multicast scouting
+// doesn't traverse Tailscale, so the robot daemon listens on a fixed port.
+// 5456 is the rendezvous port a config-free dora daemon automatically
+// connects to (it tries `tcp/<--coordinator-addr>:5456` by default), so the
+// OPERATOR side needs no zenoh config at all — pointing it at a robot's
+// coordinator is enough. One zenoh TCP connection is bidirectional: cameras/
+// state flow robot -> operator, commands operator -> robot.
+//
+// Use:  ZENOH_CONFIG=dataflows/remote/zenoh/robot.json5 \
+//         uv run dora daemon --machine-id robot
+{
+  mode: "peer",
+  listen: { endpoints: ["tcp/[::]:5456"] },
+  scouting: { multicast: { enabled: false } },
+}

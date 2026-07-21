@@ -6,8 +6,8 @@
 #   whose bundled `state` (dim 14) feeds back to pinocchio; manager gates startup/liveness;
 #   rerun-view shows both 3D arms. Disconnect rides `robot_command`.
 #
-#   build: uv run --env-file dataflows/robot_envs/trossen-1.env dora build  dataflows/trossen_real.yml
-#   run:   uv run --env-file dataflows/robot_envs/trossen-1.env dora start --attach dataflows/trossen_real.yml
+#   build: uv run --env-file dataflows/robot_envs/trossen-1.env dora build  dataflows/trossen_stationary_real.yml
+#   run:   uv run --env-file dataflows/robot_envs/trossen-1.env dora start --attach dataflows/trossen_stationary_real.yml
 #   then open http://127.0.0.1:8421
 
 nodes:
@@ -58,9 +58,9 @@ nodes:
       SCENE: "assets/trossen_stationary/scenes/workstation.yaml"
       COMMAND_LAYOUT: "cartesian"
 
-  # 2x trossen-robot followers + state_sync (see modules/trossen_pair_module.yml).
+  # 2x trossen-robot followers + state_sync (see modules/trossen_wxai_pair_module.yml).
   - id: followers
-    module: modules/trossen_pair_module.yml
+    module: modules/trossen_wxai_pair_module.yml
     inputs:
       program_state: manager/program_state
       left_joint_target: pinocchio/left_joint_target
@@ -79,7 +79,7 @@ nodes:
       program_state: manager/program_state
     env:
       MODE: "visualize"
-      APP_ID: "trossen_real"
+      APP_ID: "trossen_stationary_real"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__CAMERAS: ""
       VISUALIZE__MEMORY_LIMIT: "2GB"

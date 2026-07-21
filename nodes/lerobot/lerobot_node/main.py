@@ -35,13 +35,9 @@ import sys
 from dora import Node
 from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
-# `image_key` is re-exported (the tests import it from here); the per-input state
-# machine lives in modes/record.py.
 from lerobot_node.modes import MODES
-from lerobot_node.modes.record import NODE_ID, image_key  # noqa: F401
+from lerobot_node.modes.record import image_key
 from lerobot_node.node_config import RecorderConfig, load_config
-
-__all__ = ["build_features", "image_key", "main", "open_dataset", "run"]
 
 
 def build_features(cfg: RecorderConfig) -> dict:

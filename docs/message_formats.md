@@ -81,7 +81,7 @@ belongs in the node's own log. Common tokens:
 | token | meaning |
 |---|---|
 | `ready` | node is initialized and operational. Every manager-watched producer must report it once to leave `boot`. |
-| `homing` / `homed` | pinocchio's homing ramp is running / the robot measurably arrived at the descriptor home (advances `homing` → `teleop`). |
+| `homing` / `homed` | pinocchio's homing ramp is running / the robot measurably arrived at the model home (the MJCF `home` keyframe; advances `homing` → `teleop`). |
 
 Node-specific tokens (informative; nothing gates on them yet): retarget
 `waiting`/`engaged`, sync `waiting`/`synced`. TODO: tokenize the remaining prose
@@ -103,8 +103,8 @@ do not require metadata.
   input has a fresh sample (its tick is only a staleness watchdog); consumes the configured
   per-node inputs. Used on the real robot to bundle the per-arm nodes (no built-in dora join).
 - **trossen-robot** → one thing's `<name>_tcp_pose`, `<name>_joint_state`, `<name>_gripper_state`,
-  `node_state`; consumes `<name>_tcp_target` (cartesian mode) or `<name>_joint_target` +
-  `<name>_gripper_joint_target` (joint mode), and `robot_command`. A `leader` publishes its
+  `node_state`; consumes `<name>_joint_target` + `<name>_gripper_joint_target` (from
+  pinocchio — joint control only, pinocchio owns IK) and `robot_command`. A `leader` publishes its
   state (a `sync` bundles the leaders into the `command`). Bimanual real hardware = two nodes.
 - **web-controller** → `episode_control`, `robot_command`, `node_state`, and in `manual` mode the
   `command` bundle (consumes `<part>_tcp_pose` for feedback); `episode` mode emits only

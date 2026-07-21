@@ -32,4 +32,4 @@ is kept purely as a watchdog, surfacing misalignment via `log.warning` (kept OUT
 
 ## Config (env)
 `MODE` (`collect`), **`INPUTS`** (CSV, ordered, required), `OUTPUT` (default `bundle`),
-`MAX_STALE` (s, default `None` = no warning; set in the dataflow to ~`3/FPS`). Debug port: 5688.
+`MAX_STALE` (s, default `None` = no warning; set in the dataflow to ~`3/FPS`).

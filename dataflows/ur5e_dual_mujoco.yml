@@ -1,11 +1,11 @@
 # LOCAL UR5e dual-arm teleop + recording in the MuJoCo sim.
 #
-# Same graph as trossen_sim.yml with the UR5e cell scene. Sim cameras are commented out
+# Same graph as trossen_stationary_mujoco.yml with the UR5e cell scene. Sim cameras are commented out
 # because the ur5e_dual MJCF defines no <camera> elements yet (TODO: add them to the model,
 # then re-enable the cam_* wiring below).
 #
-#   build: uv run dora build dataflows/ur5e_sim.yml
-#   run:   uv run dora start --attach dataflows/ur5e_sim.yml
+#   build: uv run dora build dataflows/ur5e_dual_mujoco.yml
+#   run:   uv run dora start --attach dataflows/ur5e_dual_mujoco.yml
 #   then open http://127.0.0.1:8421
 
 nodes:
@@ -98,7 +98,7 @@ nodes:
       program_state: manager/program_state
     env:
       MODE: "visualize"
-      APP_ID: "ur5e_sim"
+      APP_ID: "ur5e_dual_mujoco"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__MEMORY_LIMIT: "2GB"
       VISUALIZE__CAMERAS: "" # "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
@@ -122,8 +122,8 @@ nodes:
     outputs: [node_state]
     env:
       MODE: "record"
-      APP_ID: "ur5e_sim"
-      RECORD__RRD_DIR: "out/rerun_ur5e_sim"
+      APP_ID: "ur5e_dual_mujoco"
+      RECORD__RRD_DIR: "out/rerun_ur5e_dual_mujoco"
       RECORD__FPS: "30"
       RECORD__IMAGE_MODE: "h264"
 
@@ -144,8 +144,8 @@ nodes:
   #      program_state: manager/program_state
   #    outputs: [node_state]
   #    env:
-  #      REPO_ID: "test/ur5e_sim"
-  #      REPO_ROOT: "out/lerobot_ur5e_sim"
+  #      REPO_ID: "test/ur5e_dual_mujoco"
+  #      REPO_ROOT: "out/lerobot_ur5e_dual_mujoco"
   #      FPS: "30"
   #      CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
   #      IMAGE_WIDTH: "640"

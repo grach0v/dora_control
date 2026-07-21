@@ -31,7 +31,6 @@ def main() -> int:
                 if event["type"] == "INPUT":
                     if mode.handle(event):  # True -> program_state stop
                         break
-            mode.step()
             mode.maybe_publish()
     finally:
         mode.close()

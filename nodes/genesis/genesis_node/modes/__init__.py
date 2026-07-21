@@ -1,5 +1,4 @@
-"""Mode registry for the genesis node. `twin`/`force_preview` are reserved — selecting
-them raises KeyError here (loud), since only `sim` is implemented."""
+"""Mode registry for the genesis node — env ``MODE`` -> mode class."""
 
 from genesis_node.modes.sim import SimMode
 

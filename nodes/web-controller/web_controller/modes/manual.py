@@ -44,18 +44,9 @@ def quat_to_rpy(qx, qy, qz, qw) -> list[float]:
     return Rotation.from_quat([qx, qy, qz, qw]).as_euler("xyz").tolist()
 
 
-def rpy_to_quat(roll, pitch, yaw) -> list[float]:
-    return Rotation.from_euler("xyz", [roll, pitch, yaw]).as_quat().tolist()
-
-
 def pose_to_target(pose7) -> list[float]:
     x, y, z, qx, qy, qz, qw = (float(v) for v in pose7)
     return [x, y, z, *quat_to_rpy(qx, qy, qz, qw)]
-
-
-def target_to_pose(target6: list[float]) -> list[float]:
-    x, y, z, roll, pitch, yaw = target6
-    return [x, y, z, *rpy_to_quat(roll, pitch, yaw)]
 
 
 def load_descriptor(scene_path: str) -> dict:
@@ -88,8 +79,9 @@ class State:
         # Last pose7 we COMMANDED per arm part — compared with pinocchio's solved pose to detect
         # an unreachable target and snap back to it (see on_solution).
         self.last_commanded: dict[str, list[float]] = {}
-        # Gripper bounds / home / nudge step per part, all from the descriptor (robot-agnostic:
+        # Gripper bounds / nudge step per part, from the descriptor (robot-agnostic:
         # Trossen open>closed in metres, UR open<closed in radians — both handled order-free).
+        # The commanded opening starts at open (= the cell home keyframe's gripper pose).
         self.gripper: dict[str, float] = {}
         self.gripper_bounds: dict[str, tuple[float, float]] = {}
         self.gripper_step: dict[str, float] = {}
@@ -98,7 +90,7 @@ class State:
             lo, hi = sorted((float(gp["open"]), float(gp["closed"])))
             self.gripper_bounds[p] = (lo, hi)
             self.gripper_step[p] = (hi - lo) * cfg.gripper_step_frac
-            self.gripper[p] = float(gp.get("home", [gp["open"]])[0])
+            self.gripper[p] = float(gp["open"])
         # Active drag-slider anchors: (arm part, field) -> the target pose7 captured when the
         # slider was grabbed. While a slider is held, its deflection in [-1, 1] sets the target
         # ABSOLUTELY as `anchor + deflection * span` (so the operator drags the target to a

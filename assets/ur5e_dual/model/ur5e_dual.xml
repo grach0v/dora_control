@@ -524,4 +524,7 @@
     <general name="right_wrist_3_joint" class="right_size1" joint="right_wrist_3_joint" gainprm="4500" biasprm="0 -4500 -300"/>
     <general name="right_gripper" class="right_g_2f85" joint="right_g_right_driver_joint" ctrllimited="true" ctrlrange="0 0.8" forcelimited="true" forcerange="-50 50" gainprm="20" biasprm="0 -20 -1"/>
   </actuator>
+  <keyframe>
+    <key name="home" qpos="0.2079 -2.2915 -0.7666 -1.5145 1.9397 0.0121 0 0 0 0 0 0 0 0 0.2184 -2.3139 -0.7674 -1.5801 1.5861 -0.0005 0 0 0 0 0 0 0 0" ctrl="0.2079 -2.2915 -0.7666 -1.5145 1.9397 0.0121 0 0.2184 -2.3139 -0.7674 -1.5801 1.5861 -0.0005 0"/>
+  </keyframe>
 </mujoco>

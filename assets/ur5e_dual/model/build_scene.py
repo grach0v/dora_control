@@ -4,9 +4,9 @@ Run manually (not a node, not imported by any node — CLAUDE.md): it composes t
 vendored menagerie models (`ur5e/ur5e.xml` + `robotiq_2f85/2f85.xml`) into a single,
 flat, self-contained `ur5e_dual.xml` (bench + 2 arms + grippers + cameras) using MuJoCo's
 MjSpec attach API. That one file is the UNIVERSAL model — loaded by mujoco-sim, genesis,
-the rerun 3D view, AND pinocchio. No floor or props: MuJoCo has a default headlight,
-genesis adds its own ground, and manipulands are added separately later. The committed
-`ur5e_dual.xml` is the real artifact; re-run this only when the layout/robot changes.
+the rerun 3D view, AND pinocchio. No floor: MuJoCo has a default headlight and genesis
+adds its own ground. The committed `ur5e_dual.xml` is the real artifact; re-run this
+only when the layout/robot changes.
 
     cd assets/ur5e_dual/model
     ../../../nodes/mujoco-sim/.venv/bin/python build_scene.py
@@ -39,6 +39,17 @@ BASE_Z = TABLE_SURFACE_Z + BASE_RISER
 BASE_SEP = 0.70                 # base-to-base distance (given)
 BASE_X = 0.0
 SIDES = {"left": -BASE_SEP / 2.0, "right": +BASE_SEP / 2.0}  # y offset per side (left on -y)
+
+# Cell home pose, emitted as the MJCF `home` keyframe (the single source every consumer
+# reads: pinocchio referenceConfigurations, mujoco-sim/genesis key_qpos). Arm joints
+# captured from the REAL cell 2026-07-02 (freedrive ready pose: over bench, gripper
+# down, elbow-down branch); grippers open (driver joint 0 rad).
+HOME = {
+    "left":  [0.2079, -2.2915, -0.7666, -1.5145, 1.9397, 0.0121],
+    "right": [0.2184, -2.3139, -0.7674, -1.5801, 1.5861, -0.0005],
+}
+ARM_JOINTS = ["shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
+              "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"]
 # Base mount (frame quat, wxyz) for BOTH arms (same -> they stay parallel). This is the REAL
 # robot's base frame: a measured joint vector renders matching the physical arm. Do NOT flip it
 # to change which way the cell "faces" — that would mis-render the real arm. The default/home
@@ -238,13 +249,27 @@ def main() -> None:
     model = spec.compile()  # validate before writing
     print(f"compiled ok: nq={model.nq} nu={model.nu} nbody={model.nbody} ncam={model.ncam}")
 
-    # Drop the per-arm "home" keyframes attach carried over: their qpos is sized for
-    # MuJoCo's tree, which Pinocchio's MJCF parser rejects (it builds a different nq).
-    # Home poses live in the scene descriptor instead (read by every node).
+    # Drop the per-arm "home" keyframes the attach carried over (their qpos is sized for
+    # a single arm's tree, not the combined model) and emit ONE whole-cell `home` keyframe
+    # instead — qpos per joint by name, ctrl per position actuator = its joint's home.
     xml = re.sub(r"\n\s*<keyframe>.*?</keyframe>", "", spec.to_xml(), flags=re.DOTALL)
+    m = mujoco.MjModel.from_xml_string(xml)
+    qpos, ctrl = [0.0] * m.nq, [0.0] * m.nu
+    for side, home in HOME.items():
+        for jn, v in zip(ARM_JOINTS, home):
+            j = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_JOINT, f"{side}_{jn}")
+            qpos[m.jnt_qposadr[j]] = v
+    for a in range(m.nu):
+        j = m.actuator_trnid[a][0]
+        ctrl[a] = qpos[m.jnt_qposadr[j]]
+    def fmt(v):
+        return " ".join(f"{x:g}" for x in v)
+
+    key = f'\n  <keyframe>\n    <key name="home" qpos="{fmt(qpos)}" ctrl="{fmt(ctrl)}"/>\n  </keyframe>'
+    xml = xml.replace("\n</mujoco>", key + "\n</mujoco>")
     with open("ur5e_dual.xml", "w") as f:
         f.write(xml)
-    print("wrote ur5e_dual.xml")
+    print("wrote ur5e_dual.xml (with home keyframe)")
 
 
 if __name__ == "__main__":

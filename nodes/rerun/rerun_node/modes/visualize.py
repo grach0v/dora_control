@@ -201,15 +201,6 @@ class VisualizeMode:
         self._thread = threading.Thread(target=self._worker, name="rerun-log", daemon=True)
         self._handlers: dict[str, Callable] = {"program_state": self._on_program_state}
         self._viewer: subprocess.Popen | None = None  # spawned viewer, killed in close()
-        # --- latency profiling (prints ~every 2s): localizes the lag to node vs viewer.
-        #   age   = producer timestamp -> just before rr.log (how stale a frame is on entry to rerun)
-        #   rrlog = wall time of the rr.log calls (spikes = the viewer is back-pressuring the SDK)
-        #   drop  = frames evicted from our 8-deep queue (worker/rr.log can't drain fast enough)
-        # Small age + small rrlog + no drops => the node is fine and the lag is INSIDE rerun's
-        # viewer/SDK buffer (downstream of rr.log). Large age/drops/rrlog => the node/rr.log is it.
-        self._prof = {"pushed": 0, "dropped": 0, "logged": 0, "coalesced": 0,
-                      "rrlog_s": 0.0, "rrlog_max": 0.0, "age_s": 0.0, "age_max": 0.0}
-        self._prof_last: float | None = None
         # Optional 3D robot view (loads the descriptor's model; FK driven by joint state).
         self.robot = RobotScene(cfg.scene) if cfg.scene else None
         # Camera input id -> model camera name: identity for ids that are model cameras
@@ -273,7 +264,6 @@ class VisualizeMode:
                 self._viewer.wait(timeout=2)
             except subprocess.TimeoutExpired:
                 self._viewer.kill()
-        print("viz finished successfully", flush=True)
 
     def _on_program_state(self, event) -> bool:
         return event["value"][0].as_py() == "disconnect"  # True -> stop the loop
@@ -299,19 +289,16 @@ class VisualizeMode:
                     rr.log(*self.robot.camera_pinhole(cam, int(md["width"]), int(md["height"])),
                            static=True)
             batch = {entity: archetype}
-        produced = event["metadata"].get("timestamp")  # producer time.time() (see message_formats)
-        self._push(batch, float(produced) if produced is not None else time.time())
+        self._push(batch)
 
-    def _push(self, batch: dict, produced: float) -> None:
-        self._prof["pushed"] += 1
+    def _push(self, batch: dict) -> None:
         try:
-            self.frames.put_nowait((produced, batch))
+            self.frames.put_nowait(batch)
         except queue.Full:
             # Viewer is behind: drop the oldest queued batch for the newest one.
             try:
                 self.frames.get_nowait()
-                self.frames.put_nowait((produced, batch))
-                self._prof["dropped"] += 1
+                self.frames.put_nowait(batch)
             except (queue.Empty, queue.Full):
                 pass
 
@@ -326,8 +313,7 @@ class VisualizeMode:
             # Coalesce a burst: keep only the newest archetype per entity, so a slow
             # viewer renders the latest frame ASAP and never shows stale ones — and
             # no stream is starved by another (unlike a blind drop-oldest queue).
-            produced, batch = item[0], dict(item[1])
-            coalesced = 0
+            batch = dict(item)
             stopping = False
             while True:
                 try:
@@ -337,45 +323,13 @@ class VisualizeMode:
                 if nxt is None:  # stop sentinel arrived mid-drain: flush, then exit
                     stopping = True
                     break
-                produced = max(produced, nxt[0])  # newest producer ts in the coalesced frame
-                batch.update(nxt[1])
-                coalesced += 1
+                batch.update(nxt)
             # One timeline point per coalesced frame (not per entity): all entities in a frame
             # share a seq, so the viewer gets ~30 time points/s instead of ~30*N — a flood of
             # distinct points bloats the viewer's timeline index and shows up as seconds of lag.
             seq += 1
-            age = time.time() - produced          # staleness of this frame on entry to rerun
-            t0 = time.perf_counter()
             rr.set_time("log_seq", sequence=seq)
             for entity, archetype in batch.items():
                 rr.log(entity, archetype)
-            self._prof_tick(coalesced, time.perf_counter() - t0, age)
             if stopping:
                 return
-
-    def _prof_tick(self, coalesced: int, rrlog_s: float, age: float) -> None:
-        p = self._prof
-        p["logged"] += 1
-        p["coalesced"] += coalesced
-        p["rrlog_s"] += rrlog_s
-        p["rrlog_max"] = max(p["rrlog_max"], rrlog_s)
-        p["age_s"] += age
-        p["age_max"] = max(p["age_max"], age)
-        now = time.time()
-        if self._prof_last is None:
-            self._prof_last = now
-            return
-        dt = now - self._prof_last
-        if dt < 2.0:
-            return
-        n = max(p["logged"], 1)
-        print(
-            f"[viz-prof] fed={p['pushed']/dt:5.1f}/s logged={p['logged']/dt:5.1f}/s "
-            f"dropped={p['dropped']/dt:4.1f}/s coalesce={p['coalesced']/n:4.2f} "
-            f"rrlog(avg/max)={1000*p['rrlog_s']/n:5.1f}/{1000*p['rrlog_max']:6.1f}ms "
-            f"age(avg/max)={1000*p['age_s']/n:6.1f}/{1000*p['age_max']:7.1f}ms",
-            flush=True,
-        )
-        self._prof.update({"pushed": 0, "dropped": 0, "logged": 0, "coalesced": 0,
-                           "rrlog_s": 0.0, "rrlog_max": 0.0, "age_s": 0.0, "age_max": 0.0})
-        self._prof_last = now

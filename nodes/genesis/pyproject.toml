@@ -9,6 +9,7 @@ dependencies = [
     "pyarrow",
     "pydantic-settings",
     "genesis-world",
+    "mujoco",  # parses the MJCF <camera> elements (the model is the camera source of truth)
     "torch",
     "numpy",
     "opencv-python",

@@ -1,15 +1,15 @@
-"""E2E smoke test for the local Trossen sim dataflow (trossen_sim.yml).
+"""E2E smoke test for the local Trossen sim dataflow (trossen_stationary_mujoco.yml).
 
 (The Trossen flow is the smoke default because only the trossen MJCF defines sim
-cameras — the ur5e_dual model has none yet, which is why ur5e_sim.yml ships with
+cameras — the ur5e_dual model has none yet, which is why ur5e_dual_mujoco.yml ships with
 cameras commented out.)
 
 Builds the dataflow once, runs it headless for a bounded time, and asserts that
 BOTH recording artifacts exist with real content:
 
-  * the LeRobotDataset under out/lerobot_trossen_sim has meta/info.json with
+  * the LeRobotDataset under out/lerobot_trossen_stationary_mujoco has meta/info.json with
     total_frames > 0 and at least one videos/*.mp4
-  * the rerun .rrd under out/rerun_trossen_sim exists and is non-trivial in size
+  * the rerun .rrd under out/rerun_trossen_stationary_mujoco exists and is non-trivial in size
 
 The shipped dataflow is meant for a human: the web-controller page (drive by
 hand, press Record) and rerun VISUALIZE__SINK=spawn (live viewer window). CI has
@@ -30,10 +30,10 @@ import subprocess
 from pathlib import Path
 
 FLOW_DIR = Path(__file__).resolve().parent.parent   # dataflows/
-SRC_FLOW = "trossen_sim.yml"
+SRC_FLOW = "trossen_stationary_mujoco.yml"
 FLOW = "_smoke_headless.yml"                        # generated; gitignored
-REPO_ROOT = (FLOW_DIR / "../out/lerobot_trossen_sim").resolve()
-RRD_DIR = (FLOW_DIR / "../out/rerun_trossen_sim").resolve()
+REPO_ROOT = (FLOW_DIR / "../out/lerobot_trossen_stationary_mujoco").resolve()
+RRD_DIR = (FLOW_DIR / "../out/rerun_trossen_stationary_mujoco").resolve()
 # The dora CLI is the pinned source build installed at the repo-root .venv (the
 # 1.0 pip wheel is broken; see scripts/build-dora.sh). Run that binary directly.
 ROOT_DORA = (FLOW_DIR / "../.venv/bin/dora").resolve()

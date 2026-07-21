@@ -24,9 +24,11 @@ slots in by writing a new descriptor.
 ## Config (env)
 
 `MODE` (`sim`), `ROBOT_NAME`, `SCENE`, `ARMS` (CSV), `CAMERAS` (CSV), `WIDTH`, `HEIGHT`,
-`FPS`, `ENCODING` (`rgb8`|`jpeg`), `JPEG_QUALITY`. Debug port: 5680.
+`FPS`, `ENCODING` (`rgb8`|`jpeg`), `JPEG_QUALITY`.
 
 ## Tests
 
-`cd nodes/mujoco-sim && uv run pytest -q` — FakeNode + a fake world (no MuJoCo) cover the
-mode's tick cycle and dispatch; a manual `uv run dora run …` smoke exercises real rendering.
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

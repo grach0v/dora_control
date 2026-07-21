@@ -1,7 +1,7 @@
 """`teleop` mode — the default program lifecycle.
 
 BOOT (every producer reported `ready`) ->
-HOMING (pinocchio ramps the robot to the descriptor home) ->
+HOMING (pinocchio ramps the robot to the model home) ->
 TELEOPERATE ->
 DISCONNECT (final; the web controller's disconnect button, wired as the
 manager's `controller` input — valid in every state).

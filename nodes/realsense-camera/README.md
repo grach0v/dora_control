@@ -49,12 +49,8 @@ import is intentionally unguarded) and the tests skip cleanly.
 | `JPEG_QUALITY` | `90`    | JPEG quality when `ENCODING=jpeg`                  |
 | `ENABLE_DEPTH` | `false` | `true` to also publish the `depth` output          |
 
-## Test (Linux with a RealSense attached)
+## Tests
 
-```bash
-cd nodes/realsense-camera && uv run pytest tests -q
-```
-
-The dataflow test runs the node via `dora run --stop-after` and asserts a logger
-sees color (and, when enabled, depth) frames; it needs a physical device. On a
-host without `pyrealsense2` (e.g. macOS) the tests skip cleanly.
+No unit tests (tests are only for genuinely non-trivial pure logic — see
+docs/node_development.md), and this node needs Linux + a physical device anyway;
+validate on the robot host with a real dataflow.

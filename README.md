@@ -58,10 +58,10 @@ nodes/<name>/            self-contained uv project (own deps + tests)
 assets/<robot>/             shared asset zoo (data, not code): model + meshes + a
                             scene descriptor read by pinocchio and the sim nodes
 dataflows/
-  *.yml                    the 7 flows (local sim/real + remote, per robot)
+  <cell>_<variant>.yml     the flows, named cell-first (<cell> = the assets/<cell>/ dir)
+                           so a cell's sim/real/remote variants sort together
   modules/                 dora modules: arm pairs + camera rig (shared by the flows)
   robot_envs/<host>.env    per-host facts (arm IPs, camera serials; gitignored, copy the .example)
-  zenoh/                   legacy zenoh configs (reference only; use --zenoh-peer)
   nodes|assets|out         symlinks to the repo root — dora rejects module node paths
                            outside the dataflow dir; TODO remove when fixed upstream
 ```
@@ -76,7 +76,7 @@ uv run ./scripts/build-dora.sh
 
 ### Simple run
 ```sh
-uv run dora run dataflows/trossen_sim.yml
+uv run dora run dataflows/trossen_stationary_mujoco.yml
 ```
 
 It opens a rerun viewer with the four cameras and a NiceGUI web UI at
@@ -92,13 +92,20 @@ hand; press **Start/Finish** to save an episode to a LeRobot dataset + a rerun
 uv run dora up
 
 # 2. Build a dataflow (first time per dataflow: downloads/builds each node's deps):
-uv run dora build dataflows/trossen_sim.yml
+uv run dora build dataflows/trossen_stationary_mujoco.yml
 
 # 3. Run it (Ctrl-C stops it):
-uv run dora start --attach dataflows/trossen_sim.yml
+uv run dora start --attach dataflows/trossen_stationary_mujoco.yml
 
 # 4. When you're completely done, tear the daemon down:
 uv run dora destroy
+```
+
+### Tests & lint
+
+```sh
+./scripts/check.sh          # ruff + unit suites + the e2e smoke (~40 s)
+./scripts/check.sh --fast   # skip the smoke
 ```
 
 ---
@@ -116,7 +123,7 @@ uv run dora destroy
 | `genesis` | **Genesis** sim, driven by per-part `<part>_joint_target` → emits the `state` bundle + per-part `tcp_pose` + cameras. GPU-scale; sub-realtime on this Mac. Reads the descriptor | — | ❌ |
 | `mujoco-sim` | **MuJoCo** sim, same contract as `genesis` — the **fast local** backend (realtime here, bg-thread render). Reads the descriptor | e2e (smoke) | ❌ |
 | `sync` | reusable aggregator: collect N event-driven inputs, emit one concatenated bundle the moment every input has a fresh sample (tick = staleness watchdog only), `log.warning` on timestamp staleness/skew. Bundles the per-arm hardware nodes (no built-in dora join) | — | ❌ |
-| `trossen-robot` | the **real** Trossen robot, **one arm per node** (`NAME`+`IP`, `MODE`=follower/leader; `base` mode TODO for the `trossen-slate` mobile base): a follower streams `tcp_target` (firmware IK) or per-part `joint_target` (`CONTROL_SPACE=joint`, from pinocchio); a leader publishes its hand-moved state | — | ❌ |
+| `trossen-robot` | the **real** Trossen robot, **one arm per node** (`NAME`+`IP`, `MODE`=follower/leader; `base` mode TODO for the `trossen-slate` mobile base): a follower streams per-part `joint_target` from pinocchio (joint control only); a leader publishes its hand-moved state | — | ❌ |
 | `ur5e-robot` | the **real** UR5e, **one arm per node** (`NAME`+`IP`): servoJ streaming of per-part `joint_target` with joint-jump guards; optional Robotiq gripper | — | ❌ |
 | `retarget` | delta-based cross-robot leader→follower mapping (translation `SCALE`, `ALIGN_RPY` frame alignment, gripper range) → the `command` bundle | ✅ unit | ❌ |
 | `lerobot` | records cameras + the `state` bundle + the `command` bundle into a `LeRobotDataset` (with video) | — | ❌ |
@@ -127,18 +134,19 @@ uv run dora destroy
 
 ## Dataflows
 
-Under `dataflows/` — 7 flows sharing one control spine (command source →
+Under `dataflows/` — flows named `<cell>_<variant>.yml`, sharing one control spine (command source →
 pinocchio IK/safety → robot → state feedback).
 
 | dataflow | what it does | runs (sim) | human-verified |
 | --- | --- | --- | --- |
-| `trossen_sim.yml` | LOCAL: web-controller (manual) → **pinocchio** → **mujoco-sim** (Trossen cell) → rerun + lerobot. | ✅ | ❌ |
-| `ur5e_sim.yml` | LOCAL: same graph, dual-UR5e cell (no sim cameras yet — the ur5e MJCF has none, so the camera-paced lerobot recorder is disabled); smoke default is trossen_sim. | ✅ | ❌ |
-| `trossen_real.yml` | LOCAL real HW: browser Cartesian → pinocchio → trossen pair (joint). No cameras/recording. | — | ❌ |
-| `ur5e_real.yml` | LOCAL real HW: browser Cartesian → pinocchio → UR5e pair (servoJ). No cameras/recording. | — | ❌ |
-| `remote_trossen_web.yml` | REMOTE real HW: operator browser + rerun ← zenoh → Trossen pair + 4 RealSense + recorders. | — | ❌ |
-| `remote_ur5e_web.yml` | REMOTE real HW: same, UR5e cell. | — | ❌ |
-| `remote_ur5e_from_trossen.yml` | CROSS-ROBOT: hand-guided Trossen leaders (trossen-mobile) → retarget → pinocchio → UR5e cell. | — | ❌ |
+| `trossen_stationary_mujoco.yml` | LOCAL: web-controller (manual) → **pinocchio** → **mujoco-sim** (Trossen cell) → rerun + lerobot. | ✅ | ❌ |
+| `trossen_stationary_genesis.yml` | LOCAL: same graph, **genesis** backend (sub-realtime on a Mac: 100 ms tick, FPS 10). | ✅ | ❌ |
+| `ur5e_dual_mujoco.yml` | LOCAL: same graph, dual-UR5e cell (no sim cameras yet — the ur5e MJCF has none, so the camera-paced lerobot recorder is disabled); smoke default is trossen_stationary_mujoco. | ✅ | ❌ |
+| `trossen_stationary_real.yml` | LOCAL real HW: browser Cartesian → pinocchio → trossen pair (joint). No cameras/recording. | — | ❌ |
+| `ur5e_dual_real.yml` | LOCAL real HW: browser Cartesian → pinocchio → UR5e pair (servoJ). No cameras/recording. | — | ❌ |
+| `trossen_stationary_remote_web.yml` | REMOTE real HW: operator browser + rerun ← zenoh → Trossen pair + 4 RealSense + recorders. | — | ❌ |
+| `ur5e_dual_remote_web.yml` | REMOTE real HW: same, UR5e cell. | — | ❌ |
+| `ur5e_dual_from_trossen_mobile.yml` | CROSS-ROBOT: hand-guided Trossen leaders (trossen-mobile) → retarget → pinocchio → UR5e cell. | — | ❌ |
 
 Cross-machine data rides **zenoh**; daemons mesh via `--zenoh-peer` (do NOT set
 `ZENOH_CONFIG` on the 1.0 pin — it leaks into nodes and breaks startup).

@@ -67,8 +67,9 @@ check — it *owns* `program_state` and tears down on dora's `STOP`.
       PRODUCERS: left_follower,front_cam
 ```
 
-## Test
+## Tests
 
-```bash
-cd nodes/manager && uv run pytest tests -q
-```
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

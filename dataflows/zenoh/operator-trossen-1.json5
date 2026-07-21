@@ -1,0 +1,15 @@
+// Zenoh config for the OPERATOR daemon, paired with robot host `trossen-1`.
+//
+// Mirrors robot.json5 (peer, multicast off) and connects to the robot's
+// listener. Config-free operation (relying on the daemon's default
+// multicast scouting) was found to break the operator->robot direction —
+// the robot received no teleop heartbeats/targets — so the operator gets an
+// explicit, scouting-free peer config too. One file per robot host.
+//
+// Use:  ZENOH_CONFIG=dataflows/remote/zenoh/operator-trossen-1.json5 \
+//         uv run dora daemon --machine-id operator --coordinator-addr 100.89.161.119
+{
+  mode: "peer",
+  connect: { endpoints: ["tcp/100.89.161.119:5456"] },
+  scouting: { multicast: { enabled: false } },
+}

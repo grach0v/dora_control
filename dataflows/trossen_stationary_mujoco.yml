@@ -4,8 +4,8 @@
 # mujoco-sim (physics + cameras) --state(bundle) + <part>_tcp_pose + cam_*--> recorders, with the
 # sim state fed back to pinocchio and pinocchio's model-frame FK poses anchoring the controller.
 #
-#   build: uv run dora build dataflows/trossen_sim.yml
-#   run:   uv run dora start --attach dataflows/trossen_sim.yml
+#   build: uv run dora build dataflows/trossen_stationary_mujoco.yml
+#   run:   uv run dora start --attach dataflows/trossen_stationary_mujoco.yml
 #   then open http://127.0.0.1:8421
 
 nodes:
@@ -98,7 +98,7 @@ nodes:
       program_state: manager/program_state
     env:
       MODE: "visualize"
-      APP_ID: "trossen_sim"
+      APP_ID: "trossen_stationary_mujoco"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__MEMORY_LIMIT: "2GB"
       VISUALIZE__CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
@@ -121,8 +121,8 @@ nodes:
     outputs: [node_state]
     env:
       MODE: "record"
-      APP_ID: "trossen_sim"
-      RECORD__RRD_DIR: "out/rerun_trossen_sim"
+      APP_ID: "trossen_stationary_mujoco"
+      RECORD__RRD_DIR: "out/rerun_trossen_stationary_mujoco"
       RECORD__FPS: "30"
       RECORD__IMAGE_MODE: "h264"
 
@@ -142,8 +142,8 @@ nodes:
       program_state: manager/program_state
     outputs: [node_state]
     env:
-      REPO_ID: "test/trossen_sim"
-      REPO_ROOT: "out/lerobot_trossen_sim"
+      REPO_ID: "test/trossen_stationary_mujoco"
+      REPO_ROOT: "out/lerobot_trossen_stationary_mujoco"
       FPS: "30"
       CAMERAS: "cam_high,cam_low,cam_left_wrist,cam_right_wrist"
       IMAGE_WIDTH: "640"

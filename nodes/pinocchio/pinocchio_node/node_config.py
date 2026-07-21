@@ -25,15 +25,15 @@ class PinocchioConfig(BaseSettings):
 
     # --- homing stage ---
     # While the manager broadcasts the `homing` program_state stage, the node ignores the
-    # command bundle and ramps every part from its measured joints to the descriptor
-    # `home`, reporting status `homed` on arrival (the manager advances the stage on
+    # command bundle and ramps every part from its measured joints to the model home
+    # (the MJCF `home` keyframe), reporting status `homed` on arrival (the manager advances the stage on
     # that). The ramp is deliberately SLOW: max joint motion per state message (rad),
     # ~0.01 @ 30 Hz = 0.3 rad/s.
     homing_max_step: float = 0.01
-    # A part counts as home when every joint is within this (rad) of the descriptor home.
+    # A part counts as home when every joint is within this (rad) of the model home.
     homing_tol: float = 0.02
     # REFUSE to home if any joint would travel further than this (rad) from its measured
-    # start. A descriptor home that doesn't match the real cell otherwise means a huge
+    # start. A model home that doesn't match the real cell otherwise means a huge
     # blind joint-space sweep (a real UR was observed swinging its base 130° "around the
     # back"). Refusal = no motion + a loud status; pre-pose the arm or fix the home.
     homing_max_travel: float = 1.2

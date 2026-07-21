@@ -48,13 +48,16 @@ class RobotModel:
         self.desc = yaml.safe_load(path.read_text())
         scene_root = path.parent.parent
 
-        model_file = scene_root / self.desc["model_no_floor"]
+        model_file = scene_root / self.desc["model"]
         self.model = pin.buildModelFromMJCF(str(model_file))
         self.data = self.model.createData()
         self.geom = pin.buildGeomFromMJCF(self.model, str(model_file), pin.GeometryType.COLLISION)
 
+        # The cell home pose comes from the MJCF `home` keyframe (pinocchio parses
+        # keyframes into referenceConfigurations) — the model is the source of truth.
+        self.q_home = np.array(self.model.referenceConfigurations["home"])
+
         self.parts: dict[str, Part] = {}
-        self.q_home = pin.neutral(self.model)
         for name, p in self.desc["parts"].items():
             q_idx, v_idx = [], []
             for jn in p["joints"]:
@@ -70,8 +73,6 @@ class RobotModel:
                 upper=self.model.upperPositionLimit[q_idx].copy(),
                 max_step=p.get("max_step"),
             )
-            if "home" in p:
-                self.q_home[q_idx] = p["home"]
 
         self._parse_constraints()
         self._setup_collision_pairs()

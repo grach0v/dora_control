@@ -17,8 +17,6 @@ import sys
 
 from dora import Node
 
-# Re-exported for the tests, which import these from `trossen_robot.main`.
-from trossen_robot.conversions import cartesian_to_pose7, pose7_to_cartesian  # noqa: F401
 from trossen_robot.driver import make_driver
 from trossen_robot.modes import MODES
 from trossen_robot.node_config import load_config

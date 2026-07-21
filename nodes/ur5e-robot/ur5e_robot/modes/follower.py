@@ -19,7 +19,7 @@ Inputs:  <name>_joint_target, <name>_gripper_joint_target, tick,
 Outputs: <name>_tcp_pose, <name>_joint_state, <name>_gripper_state, <name>_node_state.
 
 This module imports no `ur_rtde`: the driver is injected (see main.py), so it stays
-importable on hosts without the native SDK (the unit tests run there).
+importable on hosts without the native SDK.
 """
 
 from __future__ import annotations

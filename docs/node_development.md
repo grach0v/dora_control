@@ -20,17 +20,14 @@ nodes/<name>/
   <pkg>/node_config.py     # pydantic-settings BaseSettings + load_config()
   <pkg>/modes/__init__.py  # MODES = {"<mode>": <Mode class>}
   <pkg>/modes/<mode>.py    # one mode: its *Config + a class start()/handle()/close()
-  <pkg>/inputs.py          # UnknownInput exception (if the node validates input ids)
-  <pkg>/debug.py           # maybe_start_debugger (copy verbatim; pick a fresh port)
   pyproject.toml           # name, [project.scripts], packages
-  tests/                   # unit tests + one test_dataflow.yml + fake_*.py producers
+  tests/                   # unit tests, ONLY for genuinely non-trivial pure logic
 ```
 
 ## The skeleton (`main.py`)
 
 ```python
 def main() -> int:
-    maybe_start_debugger("<name>", <port>)   # first line; see the port table in README
     cfg = load_config()
     node = Node()
     mode = MODES[cfg.mode](cfg.active, node, ...)   # KeyError on a bad MODE = loud
@@ -84,18 +81,15 @@ methods:
 - `start()` — set up resources, emit the first `node_state` (`ready`).
 - `handle(event) -> bool` — dispatch on `event["id"]` via a handler table; return
   `True` to stop the loop. An input id the node was not configured for should
-  **raise `UnknownInput`**, not be silently dropped (the manager is the one
-  exception — it warns and continues, being the supervisor).
+  **raise** (indexing the handler table raises `KeyError`), not be silently
+  dropped — an unexpected input id is a wiring bug.
 - `close()` — tear down (flush buffers, release hardware). Runs on every exit path
   via the skeleton's `finally`.
 
 ```python
 self._handlers = {"program_state": self._on_program_state, "tick": self._on_tick, ...}
 def handle(self, event):
-    handler = self._handlers.get(event["id"])
-    if handler is None:
-        raise UnknownInput(f"<mode>: no handler for {event['id']!r}")
-    return bool(handler(event))
+    return bool(self._handlers[event["id"]](event))  # KeyError on an unwired input id = loud
 ```
 
 ## node_state & program_state

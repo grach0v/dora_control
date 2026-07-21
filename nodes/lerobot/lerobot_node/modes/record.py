@@ -6,8 +6,8 @@ sets the task label. The FIRST camera in ``cameras`` paces recording (one datase
 frame per pacing frame), pairing it with the other cameras' latest frame and each
 state/action input's sample nearest the pacing timestamp (within ``sync_tolerance``).
 
-`main.py` owns the dora skeleton and opens the ``LeRobotDataset`` (injected here so
-the tests can pass a fake); this module owns the per-input logic and the recording
+`main.py` owns the dora skeleton and opens the ``LeRobotDataset`` (injected here);
+this module owns the per-input logic and the recording
 state (frames/episodes/buffers/task). Each input is dispatched through an explicitly
 built handler table; an input id the node was not configured for *raises* rather
 than being silently dropped. The pure pacing/sync helpers live here too; nothing

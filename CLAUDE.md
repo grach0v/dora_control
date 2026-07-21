@@ -61,10 +61,12 @@ a producer is outpacing a consumer's drop-oldest queue. Rate-limit the producer 
 `uv run dora …` from the repo root. dora is pinned to a **1.0.0-rc1** commit;
 build the CLI once with `./scripts/build-dora.sh` (it installs `dora` into
 `.venv/bin`, re-run after `uv sync`) and each node pins `dora-rs` to the same
-commit via `[tool.uv.sources]`. Tests are deliberately minimal: unit tests only
-where there's real pure logic (`nodes/pinocchio`, `nodes/retarget`), plus one
-end-to-end smoke (`cd dataflows && uv run --project ../nodes/lerobot pytest
-tests -q`) — don't add mock-driver unit tests to other nodes. Full details in
+commit via `[tool.uv.sources]`. **`./scripts/check.sh` runs everything** (ruff +
+unit suites + the e2e smoke; `--fast` skips the smoke). Tests are deliberately
+minimal: unit tests only where there's real pure logic (`nodes/pinocchio`,
+`nodes/retarget`), plus one end-to-end smoke (`cd dataflows && uv run --project
+../nodes/lerobot pytest tests -q`) — don't add mock-driver unit tests to other
+nodes. Lint: `uv run ruff check .` (default rules; keep it at zero findings). Full details in
 [README.md](README.md). Repeated blocks (arm pairs, camera rig) are dora modules
 in `dataflows/modules/`; the `dataflows/{nodes,assets,out}` symlinks exist ONLY
 because dora rejects module node paths outside the dataflow's directory —

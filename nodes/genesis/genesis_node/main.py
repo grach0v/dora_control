@@ -1,8 +1,9 @@
 """Genesis sim node — dora skeleton.
 
-A tick-driven producer: physics + rendering live on a background worker thread (see
-sim.py); the loop drains commands, and PUBLISHES the latest state + cameras only when a
-`tick` arrives. ``MODE`` selects the state machine (only ``sim`` today).
+A tick-driven producer: physics + rendering run INLINE on this loop (genesis'
+renderer needs the main thread, see sim.py); the loop drains commands and, on each
+`tick`, steps physics and publishes state + cameras. ``MODE`` selects the state
+machine (only ``sim``).
 """
 
 from __future__ import annotations
@@ -31,7 +32,6 @@ def main() -> int:
                 if event["type"] == "INPUT":
                     if mode.handle(event):  # True -> program_state stop
                         break
-            mode.step()
             mode.maybe_publish()
     finally:
         mode.close()

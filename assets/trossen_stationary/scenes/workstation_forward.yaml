@@ -23,10 +23,9 @@
 
 name: workstation_forward
 
-# MuJoCo model. scene.xml includes stationary_ai.xml + a floor (sims). Pinocchio's MJCF
-# parser rejects the <include>, so it uses model_no_floor (robot + table, self-contained).
-model: model/stationary_ai/scene_forward.xml
-model_no_floor: model/stationary_ai/stationary_ai_forward.xml
+# One self-contained MuJoCo model (robot + table + scene dressing) parsed by EVERY
+# consumer — mujoco-sim, genesis, the rerun 3D view, and pinocchio.
+model: model/stationary_ai/stationary_ai_forward.xml
 
 # Actuated subsystems. n (DOF) = len(joints). Names are the MuJoCo joint/site/actuator names.
 parts:
@@ -38,7 +37,6 @@ parts:
     ee_frame: follower_left_ee_site        # mujoco site / pinocchio frame at the gripper tip
     ee_link: follower_left_link_6          # genesis exposes links, not sites: ee = link + offset
     ee_offset: [0.156, 0.0, 0.0]
-    home: [0.0, 0.26, 0.26, 0.0, 0.0, 0.0]
     max_step: 0.05                         # max joint motion per control step (rad)
   left_gripper:
     type: gripper
@@ -47,7 +45,6 @@ parts:
     actuator: follower_left_gripper
     open: 0.044
     closed: 0.0
-    home: [0.044]
     max_step: 0.05                         # m / step (grippers are fast — different units than arms)
   right:
     type: arm
@@ -57,7 +54,6 @@ parts:
     ee_frame: follower_right_ee_site
     ee_link: follower_right_link_6
     ee_offset: [0.156, 0.0, 0.0]
-    home: [0.0, 0.26, 0.26, 0.0, 0.0, 0.0]
     max_step: 0.05                         # rad / step
   right_gripper:
     type: gripper
@@ -66,7 +62,6 @@ parts:
     actuator: follower_right_gripper
     open: 0.044
     closed: 0.0
-    home: [0.044]
     max_step: 0.05                         # m / step
 
 # Safety constraints the pinocchio gate enforces. Generic + extensible (add a type = add a
@@ -105,16 +100,5 @@ state_layout:
   - {part: right,         space: joint, quantity: position, dim: 6}
   - {part: right_gripper, space: joint, quantity: position, dim: 1}
 
-# Interactable props the sim nodes spawn (pinocchio ignores these). Resting on the table.
-objects:
-  - {name: cube, type: box,    size: [0.025, 0.025, 0.025], pos: [-0.25, 0.15, 0.045], rgba: [0.8, 0.2, 0.2, 1.0]}
-  - {name: ball, type: sphere, size: [0.025],               pos: [-0.25, -0.15, 0.045], rgba: [0.2, 0.6, 0.9, 1.0]}
-  - {name: box,  type: box,    size: [0.04, 0.04, 0.03],    pos: [-0.2, 0.0, 0.05],    rgba: [0.2, 0.7, 0.3, 1.0]}
 
-# Cameras the sim nodes render + publish (output id == name). Static cameras give world
-# pos+lookat; wrist cameras give `mount` (a part id) + pos/lookat in that part's ee_link frame.
-cameras:
-  - {name: cam_high,        pos: [0.9, 0.0, 1.0],   lookat: [-0.2, 0.0, 0.1], fov: 65}
-  - {name: cam_low,         pos: [-0.9, 0.0, 0.20], lookat: [-0.1, 0.0, 0.08], fov: 100}
-  - {name: cam_left_wrist,  mount: left,  pos: [0.05, 0.0, 0.05], lookat: [0.35, 0.0, 0.0], fov: 87}
-  - {name: cam_right_wrist, mount: right, pos: [0.05, 0.0, 0.05], lookat: [0.35, 0.0, 0.0], fov: 87}
+# Cameras live in the MJCF <camera> elements, never here.

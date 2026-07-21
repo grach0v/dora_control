@@ -47,11 +47,9 @@ ids, default `left,right`; one arm → just `left`), `POS_STEP` (m/click, `0.01`
 `ROT_STEP` (rad/click, `0.05`), `GRIPPER_STEP` (m/click, `0.004`),
 `GRIPPER_OPEN`/`GRIPPER_CLOSED` (range, `0.044`/`0`).
 
-## Test
+## Tests
 
-```bash
-cd nodes/web-controller && uv run pytest tests -q
-```
-
-Covers the closed-loop path (feedback shown on `/state`, `/nudge` moves the
-republished target) and dual-arm independence.
+No unit tests here on purpose (tests are only for genuinely non-trivial pure
+logic — see docs/node_development.md); the e2e smoke
+(`cd dataflows && uv run --project ../nodes/lerobot pytest tests -q`) exercises
+this node in the full graph.

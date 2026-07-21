@@ -16,22 +16,32 @@ All flows share one control spine:
 
 ## The flows
 
+Named `<cell>_<variant>.yml`, where `<cell>` is exactly the `assets/<cell>/`
+directory (flow prefix = scene root = rig identity), so everything for one cell
+sorts together. Variants: a sim backend name (`mujoco`, `genesis`) implies local
+sim; `real` = local on the robot host; `remote_web` = two-machine browser teleop;
+`from_<leader-cell>` = cross-robot.
+
 | Flow | What it is |
 |---|---|
-| `trossen_sim.yml` | LOCAL Trossen stationary cell in MuJoCo, web teleop + recording |
-| `ur5e_sim.yml` | LOCAL dual-UR5e cell in MuJoCo, web teleop + recording (no sim cameras yet — the ur5e MJCF has none) |
-| `trossen_real.yml` | LOCAL (on the robot host) real Trossen cell, web teleop, no cameras/recording |
-| `ur5e_real.yml` | LOCAL (on the robot host) real dual UR5e, web teleop, no cameras/recording |
-| `remote_trossen_web.yml` | REMOTE browser teleop + episode recording, real Trossen cell + 4 RealSense |
-| `remote_ur5e_web.yml` | REMOTE browser teleop + episode recording, real UR5e cell + 4 RealSense |
-| `remote_ur5e_from_trossen.yml` | CROSS-ROBOT: hand-guided Trossen leaders (trossen-mobile) drive the UR5e cell |
+| `trossen_stationary_mujoco.yml` | LOCAL Trossen stationary cell in MuJoCo, web teleop + recording |
+| `trossen_stationary_genesis.yml` | LOCAL Trossen stationary cell in Genesis (same graph, genesis backend; sub-realtime on a Mac — 100 ms tick, FPS 10) |
+| `ur5e_dual_mujoco.yml` | LOCAL dual-UR5e cell in MuJoCo, web teleop + recording (no sim cameras yet — the ur5e MJCF has none) |
+| `trossen_stationary_real.yml` | LOCAL (on the robot host) real Trossen cell, web teleop, no cameras/recording |
+| `ur5e_dual_real.yml` | LOCAL (on the robot host) real dual UR5e, web teleop, no cameras/recording |
+| `trossen_stationary_remote_web.yml` | REMOTE browser teleop + episode recording, real Trossen cell + 4 RealSense |
+| `ur5e_dual_remote_web.yml` | REMOTE browser teleop + episode recording, real UR5e cell + 4 RealSense |
+| `ur5e_dual_from_trossen_mobile.yml` | CROSS-ROBOT: hand-guided Trossen leaders (trossen-mobile) drive the UR5e cell |
 
-Repeated multi-node blocks are dora modules in [`modules/`](modules): the
-bimanual arm pairs (`trossen_pair`, `ur5e_pair` — 2 driver nodes + `state_sync`)
-and the 4-RealSense `camera_rig`. Per-instance nodes publish name-prefixed
-outputs (`left_node_state`, `cam_wrist1_image`) because module exports must be
-distinct literal names; a `_unstable_deploy` on the module instance applies to
-all its inner nodes.
+Repeated multi-node blocks are dora modules in [`modules/`](modules), named by
+their scope: arm pairs by **robot model** (`trossen_wxai_pair`, `ur5e_pair` —
+2 driver nodes + `state_sync`, reusable by any cell with that hardware) and
+camera rigs by **cell** (`trossen_stationary_rig` — a rig is a physical fact:
+those serials, that host; a new cell gets its own rig module, there is no
+"generic" rig). Per-instance nodes publish name-prefixed outputs
+(`left_node_state`, `cam_wrist1_image`) because module exports must be distinct
+literal names; a `_unstable_deploy` on the module instance applies to all its
+inner nodes.
 
 TODO(dora): the `nodes`/`assets`/`out` entries here are symlinks to the repo
 root, needed ONLY because dora rejects module node paths outside the dataflow's
@@ -44,8 +54,8 @@ From the repo root (`uv run` provides the pinned dora CLI):
 
 ```sh
 uv run dora up                                        # once: coordinator + daemon
-uv run dora build dataflows/ur5e_sim.yml              # first time: syncs node venvs
-uv run dora start --attach dataflows/ur5e_sim.yml     # Ctrl-C to stop
+uv run dora build dataflows/ur5e_dual_mujoco.yml              # first time: syncs node venvs
+uv run dora start --attach dataflows/ur5e_dual_mujoco.yml     # Ctrl-C to stop
 uv run dora destroy                                   # when done: tear down
 ```
 
@@ -56,8 +66,8 @@ a per-episode `.rrd` under `out/`.
 The real-robot local flows additionally need the host env-file (arm IPs):
 
 ```sh
-uv run --env-file dataflows/robot_envs/ur5-corner.env dora build  dataflows/ur5e_real.yml
-uv run --env-file dataflows/robot_envs/ur5-corner.env dora start --attach dataflows/ur5e_real.yml
+uv run --env-file dataflows/robot_envs/ur5-corner.env dora build  dataflows/ur5e_dual_real.yml
+uv run --env-file dataflows/robot_envs/ur5-corner.env dora start --attach dataflows/ur5e_dual_real.yml
 ```
 
 Safety for first hardware contact: pendants powered, brakes released, Remote
@@ -75,8 +85,7 @@ cp dataflows/robot_envs/trossen-1.env.example dataflows/robot_envs/<host>.env   
 Every node opens its own zenoh session; daemons mesh through one shared
 rendezvous endpoint given by `--zenoh-peer` (first daemon to bind it listens,
 the rest connect). A `ZENOH_CONFIG` env var actively breaks this: it leaks into
-every spawned node, which then all try to bind the same fixed port. (The
-`zenoh/*.json5` files are kept only as reference.) Multicast scouting doesn't
+every spawned node, which then all try to bind the same fixed port. Multicast scouting doesn't
 cross the office wifi/ethernet subnets, so the flag is required. The coordinator
 binds 127.0.0.1 by default — give it `--interface 0.0.0.0` so remote daemons can
 register.
@@ -88,7 +97,7 @@ hosts to reach each other — as of 2026-07-02 it silently DROPS
 trossen-mobile→ur5-corner (both `tagged-devices`), so until that's fixed use LAN
 IPs (DHCP — re-check per session: `ipconfig getifaddr en0` / `hostname -I`).
 
-Two-machine web teleop (`remote_trossen_web.yml` / `remote_ur5e_web.yml`):
+Two-machine web teleop (`trossen_stationary_remote_web.yml` / `ur5e_dual_remote_web.yml`):
 
 ```sh
 # robot host (tmux, stays up):
@@ -99,9 +108,9 @@ uv run dora daemon --machine-id operator --coordinator-addr <robot-addr> \
   --zenoh-peer tcp/<robot-addr>:5456
 # operator laptop, terminal 2 — always build before start:
 uv run --env-file dataflows/robot_envs/trossen-1.env \
-  dora build dataflows/remote_trossen_web.yml --coordinator-addr <robot-addr>
+  dora build dataflows/trossen_stationary_remote_web.yml --coordinator-addr <robot-addr>
 uv run --env-file dataflows/robot_envs/trossen-1.env \
-  dora start --attach dataflows/remote_trossen_web.yml --coordinator-addr <robot-addr>
+  dora start --attach dataflows/trossen_stationary_remote_web.yml --coordinator-addr <robot-addr>
 ```
 
 The control page (`http://127.0.0.1:8421`): −/+ buttons teleoperate each arm's
@@ -112,7 +121,7 @@ LeRobotDataset and a per-episode `.rrd` under `out/` on the robot host;
 recorders, viewers — tears down and the whole dataflow stops. Ctrl-C is the
 fallback (the robot still homes + releases).
 
-Cross-robot (`remote_ur5e_from_trossen.yml`, 3 machines — laptop = coordinator
+Cross-robot (`ur5e_dual_from_trossen_mobile.yml`, 3 machines — laptop = coordinator
 only, `operator` = trossen-mobile, `robot` = ur5-corner): a cross-robot flow
 loads *every* involved host's env-file on the build/start commands — dora
 expands `${VAR}` at parse time on the launching machine:
@@ -127,15 +136,31 @@ uv run dora daemon --machine-id operator --coordinator-addr <laptop-addr> \
 # laptop:
 uv run dora coordinator --interface 0.0.0.0
 uv run --env-file dataflows/robot_envs/ur5-corner.env --env-file dataflows/robot_envs/trossen-mobile.env \
-  dora build dataflows/remote_ur5e_from_trossen.yml --coordinator-addr 127.0.0.1
+  dora build dataflows/ur5e_dual_from_trossen_mobile.yml --coordinator-addr 127.0.0.1
 uv run --env-file dataflows/robot_envs/ur5-corner.env --env-file dataflows/robot_envs/trossen-mobile.env \
-  dora start --attach dataflows/remote_ur5e_from_trossen.yml --coordinator-addr 127.0.0.1
+  dora start --attach dataflows/ur5e_dual_from_trossen_mobile.yml --coordinator-addr 127.0.0.1
 ```
 
 The retarget mapping is delta-based (each arm engages where it happens to be —
 no startup lunge) with `SCALE` translation scaling and an `ALIGN_RPY` leader→UR
 frame yaw; **first run: push one leader gently forward and confirm the UR moves
 the expected way in rerun before trusting the alignment.**
+
+## Adding a robot / configuration
+
+No node code changes — that invariant is the test that a new cell fits:
+
+1. `assets/<cell>/` — MJCF model (+ meshes) and a scene descriptor
+   (`scenes/*.yaml`; copy the trossen one, it is the schema-by-example).
+2. Optionally a `modules/<cell>_rig_module.yml` (its cameras) and/or a
+   `modules/<model>_pair_module.yml` (its arms), if not already present.
+3. Flows named `<cell>_<variant>.yml`, wiring the shared control spine
+   (manager → controller/pinocchio → robot/sim → recorders) to those modules.
+4. A `robot_envs/<host>.env.example` for its serials/IPs.
+
+TODO: make the control spine itself composable — a `teleoperation` module you
+connect a robot module + a teleoperator-device module to (see
+[../docs/plans/teleop-module.md](../docs/plans/teleop-module.md)).
 
 ## If a remote flow misbehaves
 
@@ -148,7 +173,7 @@ the expected way in rerun before trusting the alignment.**
 
 ## Test
 
-One end-to-end smoke: builds `trossen_sim.yml` (the trossen model is the one
+One end-to-end smoke: builds `trossen_stationary_mujoco.yml` (the trossen model is the one
 with sim cameras), rewrites it headless (scripted driver instead of the browser,
 rerun in-memory), runs it
 for ~25 s and asserts a LeRobotDataset with video + a per-episode `.rrd` were

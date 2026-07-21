@@ -33,7 +33,7 @@ config/message-id growth.
 `MODE` (`control`), **`SCENE`** (required — descriptor path), **`COMMAND_LAYOUT`** (required —
 which `command_layouts.<name>`: `cartesian` for web teleop, `joint` for leader/policy),
 `COLLISION_CHECK`, `IK_DAMPING`. The per-step bound is **per-part `max_step`** in the descriptor
-(units differ — rad for arms, m for grippers); `MAX_JOINT_STEP` is the fallback. Debug port: 5683.
+(units differ — rad for arms, m for grippers); `MAX_JOINT_STEP` is the fallback.
 
 ## Tests
 
