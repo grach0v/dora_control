@@ -1,0 +1,103 @@
+# Cart scene descriptor — the Trossen AI Mobile kit FOLLOWER cell: both WXAI arms on
+# the mobile cart, facing forward (-x), side by side 0.65 m apart (measured; the cart
+# rail is adjustable — the spacing lives in the MJCF base-link pos lines, not here).
+# The mobile base itself is NOT a part yet (arms only; base control comes later).
+#
+# DATA, not code. The `pinocchio` (IK + safety) and the sim nodes (`mujoco-sim`/`genesis`)
+# each read it with their own small loader — no shared Python module (CLAUDE.md). It is
+# generic: a different robot/setup is a new descriptor, not node edits.
+#
+# Generic vocabulary:
+#  * parts        — any actuated subsystem (arm / gripper / base / leg ...). `ee_frame` is
+#                   OPTIONAL; a part without one is joint-only (no IK), e.g. a gripper.
+#  * constraints  — typed safety rules the gate enforces (plane / self_collision / ...).
+#  * (space, quantity) — every commanded/measured value is space ∈ {joint, cartesian} ×
+#                   quantity ∈ {position, velocity, effort}. Adding e.g. velocity is a tag
+#                   here + one dispatch branch in pinocchio, not new messages/config.
+#  * command_layouts / state_layout — ordered vectors (part, space, quantity, dim) that
+#                   define the flat `command`/`state` bundle messages. The dataflow picks a
+#                   command layout via COMMAND_LAYOUT (web=cartesian, leader/policy=joint).
+#
+# Paths are relative to the scene root (assets/trossen_mobile/).
+
+name: cart
+
+# One self-contained MuJoCo model (robot + cart deck + scene dressing) parsed by EVERY
+# consumer — mujoco-sim, genesis, the rerun 3D view, and pinocchio.
+model: model/mobile_ai/mobile_ai.xml
+
+# Actuated subsystems. n (DOF) = len(joints). Names are the MuJoCo joint/site/actuator names.
+parts:
+  left:
+    type: arm
+    prefix: follower_left
+    joints: [follower_left_joint_0, follower_left_joint_1, follower_left_joint_2,
+             follower_left_joint_3, follower_left_joint_4, follower_left_joint_5]
+    ee_frame: follower_left_ee_site        # mujoco site / pinocchio frame at the gripper tip
+    ee_link: follower_left_link_6          # genesis exposes links, not sites: ee = link + offset
+    ee_offset: [0.156, 0.0, 0.0]
+    max_step: 0.05                         # max joint motion per control step (rad)
+  left_gripper:
+    type: gripper
+    prefix: follower_left                  # same collision group as the left arm
+    joints: [follower_left_left_carriage_joint]
+    actuator: follower_left_gripper
+    open: 0.044
+    closed: 0.0
+    max_step: 0.05                         # m / step (grippers are fast — different units than arms)
+  right:
+    type: arm
+    prefix: follower_right
+    joints: [follower_right_joint_0, follower_right_joint_1, follower_right_joint_2,
+             follower_right_joint_3, follower_right_joint_4, follower_right_joint_5]
+    ee_frame: follower_right_ee_site
+    ee_link: follower_right_link_6
+    ee_offset: [0.156, 0.0, 0.0]
+    max_step: 0.05                         # rad / step
+  right_gripper:
+    type: gripper
+    prefix: follower_right
+    joints: [follower_right_left_carriage_joint]
+    actuator: follower_right_gripper
+    open: 0.044
+    closed: 0.0
+    max_step: 0.05                         # m / step
+
+# Safety constraints the pinocchio gate enforces. Generic + extensible (add a type = add a
+# handler, not a config concept).
+constraints:
+  # Keep every part's ee on the +side of a world plane (the cart-deck / work surface). The
+  # MJCF cart_deck collision box spans to z=0.02; 0.025 folds in a 5 mm margin.
+  - type: plane
+    axis: z
+    min: 0.025
+  # Monitor geometry of distinct groups (by MJCF frame-name prefix) against each other — the
+  # two arm sides must not collide. Decoupled from `parts` so an arm + its gripper share a group.
+  - type: self_collision
+    groups: [follower_left, follower_right]
+    margin: 0.02
+
+# Named command-vector layouts (the controller fills one; pinocchio reads the same name). The
+# same part is commanded in Cartesian under web teleop but joint-space under leader/policy.
+command_layouts:
+  cartesian:
+    - {part: left,          space: cartesian, quantity: position, dim: 7}
+    - {part: left_gripper,  space: joint,     quantity: position, dim: 1}
+    - {part: right,         space: cartesian, quantity: position, dim: 7}
+    - {part: right_gripper, space: joint,     quantity: position, dim: 1}
+  joint:
+    - {part: left,          space: joint, quantity: position, dim: 6}
+    - {part: left_gripper,  space: joint, quantity: position, dim: 1}
+    - {part: right,         space: joint, quantity: position, dim: 6}
+    - {part: right_gripper, space: joint, quantity: position, dim: 1}
+
+# Measured whole-robot state vector (joint positions per part), produced by the sim / a sync
+# of the real arms, consumed by pinocchio (feedback) + the recorders.
+state_layout:
+  - {part: left,          space: joint, quantity: position, dim: 6}
+  - {part: left_gripper,  space: joint, quantity: position, dim: 1}
+  - {part: right,         space: joint, quantity: position, dim: 6}
+  - {part: right_gripper, space: joint, quantity: position, dim: 1}
+
+
+# Cameras live in the MJCF <camera> elements, never here.

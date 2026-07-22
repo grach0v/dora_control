@@ -1,0 +1,188 @@
+# REMOTE web teleop + episode recording for the Trossen MOBILE follower cell, across
+# THREE machines (coordinator runs on a separate host and also shows a live view):
+#
+#   machine `robot`    (trossen-mobile)     — followers module (2x trossen-robot +
+#                        state_sync) + pinocchio + camera rig (2x RealSense wrist +
+#                        1x USB) + both recorders (data is written next to the
+#                        cameras, keeping heavy video off the network).
+#   machine `operator` (denis-macbook-air)  — web-controller (browser Cartesian +
+#                        Start/Finish/Task/Disconnect) + live rerun view.
+#   machine `viewer`   (denis-office, the coordinator host) — a second live rerun
+#                        view: the same topics fan out to N consumers (pub/sub).
+#
+# web-controller --command(cartesian bundle)--> pinocchio (IK + safety) --<part>_joint_target-->
+# followers; the followers' bundled `state` feeds back to pinocchio + recording. Disconnect
+# rides `robot_command`.
+#
+# Robot-specific values come from dataflows/robot_envs/trossen-mobile.env (expanded when the
+# YAML is parsed → run dora build/start with `uv run --env-file`). Daemon networking:
+# --zenoh-peer, see dataflows/README.md. From the coordinator host (denis-office):
+#
+#   uv run --env-file dataflows/robot_envs/trossen-mobile.env \
+#     dora build dataflows/trossen_mobile_remote_web.yml --coordinator-addr 127.0.0.1
+#   (same for `dora start --attach ...`)
+
+nodes:
+  - id: manager
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/manager
+    path: nodes/manager/.venv/bin/manager
+    inputs:
+      arm_left:    followers/left_node_state
+      arm_right:   followers/right_node_state
+      state_sync:  followers/node_state
+      pinocchio:   pinocchio/node_state
+      cam_wrist1:  cams/cam_wrist1_node_state
+      cam_wrist2:  cams/cam_wrist2_node_state
+      cam_static1: cams/cam_static1_node_state
+      controller:  controller/robot_command   # Disconnect button -> program_state disconnect
+    outputs: [program_state]
+    env:
+      MODE: "teleop"
+      PRODUCERS: "arm_left,arm_right,pinocchio,state_sync,cam_wrist1,cam_wrist2,cam_static1"
+
+  - id: controller
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/web-controller
+    path: nodes/web-controller/.venv/bin/web-controller
+    inputs:
+      tick: dora/timer/millis/33
+      program_state: manager/program_state
+      # Anchor targets in pinocchio's model frame (FK of measured joints) — never the raw arm TCP.
+      left_tcp_pose:       { source: pinocchio/left_measured_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose:      { source: pinocchio/right_measured_pose, queue_size: 1, queue_policy: drop_oldest }
+      left_solution_pose:  { source: pinocchio/left_solution_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_solution_pose: { source: pinocchio/right_solution_pose, queue_size: 1, queue_policy: drop_oldest }
+    outputs: [command, episode_control, robot_command, node_state]
+    env:
+      MODE: "manual"
+      SCENE: "assets/trossen_mobile/scenes/cart.yaml"
+      COMMAND_LAYOUT: "cartesian"
+      HOST: "127.0.0.1"
+      PORT: "8421"
+
+  - id: pinocchio
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/pinocchio
+    path: nodes/pinocchio/.venv/bin/pinocchio-node
+    inputs:
+      command: { source: controller/command, queue_size: 1, queue_policy: drop_oldest }
+      state:   { source: followers/state,    queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    outputs: [left_joint_target, left_gripper_joint_target, right_joint_target, right_gripper_joint_target,
+              left_solution_pose, right_solution_pose, left_measured_pose, right_measured_pose, node_state]
+    env: { MODE: "control", SCENE: "assets/trossen_mobile/scenes/cart.yaml", COMMAND_LAYOUT: "cartesian" }
+
+  # 2x trossen-robot followers + state_sync (see modules/trossen_wxai_pair_module.yml).
+  # Follower controller IPs from the host env-file (${LEFT_ARM_IP}/${RIGHT_ARM_IP}).
+  - id: followers
+    module: modules/trossen_wxai_pair_module.yml
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    inputs:
+      program_state: manager/program_state
+      left_joint_target: pinocchio/left_joint_target
+      left_gripper_joint_target: pinocchio/left_gripper_joint_target
+      right_joint_target: pinocchio/right_joint_target
+      right_gripper_joint_target: pinocchio/right_gripper_joint_target
+      robot_command: controller/robot_command
+
+  # 2x RealSense wrist + 1x USB (see modules/trossen_mobile_rig_module.yml); serials/device
+  # from the host env-file. Cameras self-pace at their sensor FPS (30, matching the
+  # recorders' FPS below).
+  - id: cams
+    module: modules/trossen_mobile_rig_module.yml
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    inputs:
+      program_state: manager/program_state
+
+  # Both recorders run on the robot host (record next to the cameras → no network decode) and
+  # capture each episode under operator Start/Finish control. Sinks — not in manager PRODUCERS.
+  - id: lerobot
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/lerobot
+    path: nodes/lerobot/.venv/bin/lerobot-node
+    inputs:
+      cam_wrist1: cams/cam_wrist1_image
+      cam_wrist2: cams/cam_wrist2_image
+      cam_static1: cams/cam_static1_image
+      state: followers/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      REPO_ID: "trossen_mobile/teleop_web"
+      REPO_ROOT: "out/lerobot_trossen_mobile"
+      FPS: "30"
+      CAMERAS: "cam_wrist1,cam_wrist2,cam_static1"
+      IMAGE_WIDTH: "640"
+      IMAGE_HEIGHT: "480"
+      STATE_INPUTS: "state"
+      STATE_DIM: "14"
+      ACTION_INPUTS: "command"
+      ACTION_DIM: "16"
+
+  - id: rerun-record
+    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_wrist1: cams/cam_wrist1_image
+      cam_wrist2: cams/cam_wrist2_image
+      cam_static1: cams/cam_static1_image
+      left_tcp_pose: followers/left_tcp_pose
+      right_tcp_pose: followers/right_tcp_pose
+      state: followers/state
+      command: controller/command
+      control: controller/episode_control
+      program_state: manager/program_state
+    outputs: [node_state]
+    env:
+      MODE: "record"
+      APP_ID: "trossen_mobile_web"
+      RECORD__RRD_DIR: "out/rerun_trossen_mobile"
+      RECORD__FPS: "30"
+      RECORD__IMAGE_MODE: "h264"
+
+  # Live view on the operator laptop: cameras + the 3D cell driven by the real arms' state.
+  - id: rerun-view
+    _unstable_deploy: { machine: operator, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_wrist1:  { source: cams/cam_wrist1_image,  queue_size: 1, queue_policy: drop_oldest }
+      cam_wrist2:  { source: cams/cam_wrist2_image,  queue_size: 1, queue_policy: drop_oldest }
+      cam_static1: { source: cams/cam_static1_image, queue_size: 1, queue_policy: drop_oldest }
+      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
+      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "trossen_mobile_web"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__CAMERAS: "cam_wrist1,cam_wrist2,cam_static1"
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      VISUALIZE__SCENE: "assets/trossen_mobile/scenes/cart.yaml"
+
+  # Second live view on the coordinator host (audience screen) — same topics, another
+  # subscriber; nothing on the robot side changes.
+  - id: rerun-view-audience
+    _unstable_deploy: { machine: viewer, working_dir: ../.. }
+    build: uv sync --project nodes/rerun
+    path: nodes/rerun/.venv/bin/rerun-node
+    inputs:
+      cam_wrist1:  { source: cams/cam_wrist1_image,  queue_size: 1, queue_policy: drop_oldest }
+      cam_wrist2:  { source: cams/cam_wrist2_image,  queue_size: 1, queue_policy: drop_oldest }
+      cam_static1: { source: cams/cam_static1_image, queue_size: 1, queue_policy: drop_oldest }
+      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
+      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
+      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
+      program_state: manager/program_state
+    env:
+      MODE: "visualize"
+      APP_ID: "trossen_mobile_web"
+      VISUALIZE__SINK: "spawn"
+      VISUALIZE__CAMERAS: "cam_wrist1,cam_wrist2,cam_static1"
+      VISUALIZE__MEMORY_LIMIT: "2GB"
+      VISUALIZE__SCENE: "assets/trossen_mobile/scenes/cart.yaml"
