@@ -1,14 +1,15 @@
 # REMOTE web teleop + episode recording for the Trossen MOBILE follower cell, across
-# THREE machines (coordinator runs on a separate host and also shows a live view):
+# THREE machines. Machine ids are HOST-named (robot hosts run one daemon each, 24/7 —
+# several robot cells can stay registered at once; see dataflows/README.md):
 #
-#   machine `robot`    (trossen-mobile)     — followers module (2x trossen-robot +
-#                        state_sync) + pinocchio + camera rig (2x RealSense wrist +
-#                        1x USB) + both recorders (data is written next to the
-#                        cameras, keeping heavy video off the network).
-#   machine `operator` (denis-macbook-air)  — web-controller (browser Cartesian +
-#                        Start/Finish/Task/Disconnect) + live rerun view.
-#   machine `viewer`   (denis-office, the coordinator host) — a second live rerun
-#                        view: the same topics fan out to N consumers (pub/sub).
+#   machine `trossen-mobile` — followers module (2x trossen-robot + state_sync) +
+#                        pinocchio + camera rig (2x RealSense wrist + 1x USB) + both
+#                        recorders (data is written next to the cameras, keeping
+#                        heavy video off the network).
+#   machine `operator`  (the teleop laptop) — web-controller (browser Cartesian +
+#                        Start/Finish/Task/Disconnect, port 8421) + live rerun view.
+#   machine `viewer`    (the coordinator host) — a second live rerun view: the same
+#                        topics fan out to N consumers (pub/sub).
 #
 # web-controller --command(cartesian bundle)--> pinocchio (IK + safety) --<part>_joint_target-->
 # followers; the followers' bundled `state` feeds back to pinocchio + recording. Disconnect
@@ -24,7 +25,7 @@
 
 nodes:
   - id: manager
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     build: uv sync --project nodes/manager
     path: nodes/manager/.venv/bin/manager
     inputs:
@@ -62,7 +63,7 @@ nodes:
       PORT: "8421"
 
   - id: pinocchio
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     build: uv sync --project nodes/pinocchio
     path: nodes/pinocchio/.venv/bin/pinocchio-node
     inputs:
@@ -77,7 +78,7 @@ nodes:
   # Follower controller IPs from the host env-file (${LEFT_ARM_IP}/${RIGHT_ARM_IP}).
   - id: followers
     module: modules/trossen_wxai_pair_module.yml
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     inputs:
       program_state: manager/program_state
       left_joint_target: pinocchio/left_joint_target
@@ -91,14 +92,14 @@ nodes:
   # recorders' FPS below).
   - id: cams
     module: modules/trossen_mobile_rig_module.yml
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     inputs:
       program_state: manager/program_state
 
   # Both recorders run on the robot host (record next to the cameras → no network decode) and
   # capture each episode under operator Start/Finish control. Sinks — not in manager PRODUCERS.
   - id: lerobot
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     build: uv sync --project nodes/lerobot
     path: nodes/lerobot/.venv/bin/lerobot-node
     inputs:
@@ -123,7 +124,7 @@ nodes:
       ACTION_DIM: "16"
 
   - id: rerun-record
-    _unstable_deploy: { machine: robot, working_dir: ../.. }
+    _unstable_deploy: { machine: trossen-mobile, working_dir: ../.. }
     build: uv sync --project nodes/rerun
     path: nodes/rerun/.venv/bin/rerun-node
     inputs:
