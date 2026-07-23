@@ -30,6 +30,8 @@ Outputs: node_state.
 
 from __future__ import annotations
 
+import json
+import shutil
 import sys
 
 from dora import Node
@@ -67,8 +69,15 @@ def open_dataset(cfg):
     """Create a fresh dataset, or load an existing one to APPEND to — so a new
     recording session accumulates episodes instead of failing on an existing root
     (LeRobotDataset.create refuses a non-empty root)."""
-    if (cfg.repo_root / "meta" / "info.json").exists():
-        return LeRobotDataset(cfg.repo_id, root=cfg.repo_root, streaming_encoding=cfg.streaming_encoding)
+    info_path = cfg.repo_root / "meta" / "info.json"
+    if info_path.exists():
+        # A 0-episode root is left behind by a session that opened the dataset but
+        # never recorded; loading it makes LeRobotDataset fetch the "missing" data
+        # files from the hub and block indefinitely. Nothing is in it — recreate.
+        if json.loads(info_path.read_text())["total_episodes"] == 0:
+            shutil.rmtree(cfg.repo_root)
+        else:
+            return LeRobotDataset(cfg.repo_id, root=cfg.repo_root, streaming_encoding=cfg.streaming_encoding)
     return LeRobotDataset.create(
         repo_id=cfg.repo_id,
         fps=cfg.fps,
