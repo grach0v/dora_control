@@ -44,9 +44,15 @@ literal names; a `_unstable_deploy` on the module instance applies to all its
 inner nodes.
 
 TODO(dora): the `nodes`/`assets`/`out` entries here are symlinks to the repo
-root, needed ONLY because dora rejects module node paths outside the dataflow's
-directory (verified on the pin and on upstream main, 2026-07-07). Remove them
-when upstream lifts that restriction.
+root. All three are load-bearing on this pin (audited empirically 2026-07-23):
+`nodes` because dora rejects module node paths that resolve outside the
+dataflow's directory AND runs node `build:` commands with cwd = this directory;
+`assets`/`out` because dora spawns non-deployed nodes (`dora run`, local
+`dora start`) with cwd = this directory, while deployed nodes use
+`working_dir: ../..` (repo root) — the symlinks let one set of relative
+env paths (`SCENE`, `REPO_ROOT`, …) serve both cwds (`dora run` refuses
+`working_dir` overrides). Remove them when upstream lifts the module-path
+restriction and normalizes the node cwd.
 
 ## Run — local flows (single machine)
 

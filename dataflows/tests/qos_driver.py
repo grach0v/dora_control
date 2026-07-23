@@ -6,7 +6,9 @@ web-controller's manual mode) — safe on any cell: waits for the teleop stage a
 one measured pose per arm, then oscillates each arm's z around its anchor and
 sweeps the grippers.
 
-Env: AMPLITUDE (m, default 0.03), PERIOD (s, default 2.5), DISCONNECT_AFTER
+Env: AMPLITUDE (m, default 0.03), PERIOD (s, default 2.5), WAVEFORM ("sine"
+default, or "square" — target jumps ±AMPLITUDE every half period, measuring
+chase speed / settle time toward a far target), DISCONNECT_AFTER
 (s of teleop after which to send the operator `robot_command` "disconnect",
 exercising the full teardown path; 0 = never, default), EPISODE ("1" = emit
 episode task+start once teleop begins, so recorders capture an in-progress
@@ -33,6 +35,7 @@ def main() -> None:
     amplitude = float(os.environ.get("AMPLITUDE", "0.03"))
     period = float(os.environ.get("PERIOD", "2.5"))
     disconnect_after = float(os.environ.get("DISCONNECT_AFTER", "0"))
+    waveform = os.environ.get("WAVEFORM", "sine")
     episode = os.environ.get("EPISODE", "0") == "1"
 
     node = Node()
@@ -79,6 +82,8 @@ def main() -> None:
             disconnect_sent = True
             continue
         phase = math.sin(2.0 * math.pi * (now - t0) / period)
+        if waveform == "square":
+            phase = 1.0 if phase >= 0 else -1.0
         dz = amplitude * phase
         grip = 0.5 * (GRIPPER_OPEN + GRIPPER_CLOSED) + 0.5 * (GRIPPER_OPEN - GRIPPER_CLOSED) * phase
         left = [*anchors["left"][:2], anchors["left"][2] + dz, *anchors["left"][3:]]
