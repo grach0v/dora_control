@@ -63,6 +63,7 @@ class FollowerMode:
         self.last_joints: list[float] | None = None
         self.last_gripper: float | None = None
         self.pending_target: list[float] | None = None  # latest accepted joint target
+        self._last_apply = 0.0
         self._disconnected = False  # operator Disconnect already homed the arm
         self._handlers: dict[str, Callable] = {
             "program_state": self._on_program_state,
@@ -108,15 +109,19 @@ class FollowerMode:
         self.node.send_output(f"{self.name}_tcp_pose", pa.array(cartesian_to_pose7(cart)), metadata=md)
         self.node.send_output(f"{self.name}_joint_state", pa.array(joints[:6]), metadata=md)
         self.node.send_output(f"{self.name}_gripper_state", pa.array([joints[6]]), metadata=md)
-        # Keepalive re-aim: if the target stream stalls (wifi gap), keep the goal_time
-        # interpolation converging toward the latest target instead of freezing mid-glide.
-        self._apply_target()
+        # Keepalive re-aim ONLY if the target stream stalled (wifi gap): keep the
+        # goal_time interpolation converging instead of freezing mid-glide. When targets
+        # flow, arrival-applies suffice — re-aiming on BOTH kept the glide velocity hot
+        # into the target and rang 20+ mm past it.
+        if time.monotonic() - self._last_apply > 0.05:
+            self._apply_target()
 
     def _apply_target(self) -> None:
         if self.pending_target is None:
             return
         grip = self.last_gripper if self.last_gripper is not None else 0.0
         self.driver.set_all_positions([*self.pending_target, grip], self.cfg.goal_time, False)
+        self._last_apply = time.monotonic()
 
     def _on_joint_target(self, event) -> None:
         joints = event["value"].to_numpy()  # n arm joints (rad)
