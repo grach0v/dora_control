@@ -47,12 +47,15 @@ class PinocchioConfig(BaseSettings):
     ik_max_iters: int = 20          # max CLIK iterations per command
     ik_tol: float = 1e-3            # converged when the SE(3) error norm drops below this
     # Chiaverini singularity damping: as the Jacobian's smallest singular value drops below
-    # the threshold, λ² += (1-(σ/σ₀)²)·λ_s². Error damping alone misses this case — near a
-    # singularity a SMALL task error demands huge joint motion (the arms visibly saw at the
-    # max_step clamp for millimetre TCP wiggles). 0 disables.
-    ik_sing_threshold: float = 0.04  # σ₀ — onset (below normal-config σ_min ≈ 0.05, so usually OFF)
-    ik_sing_damping: float = 0.10    # λ_s — full damping at σ_min = 0 (3mm nudge at a true
-    # singularity: 0.37 rad joint swing undamped -> 0.04 rad damped, +1mm task error)
+    # the threshold, λ² += (1-(σ/σ₀)²)·λ_s². OFF BY DEFAULT: when a trajectory crosses the
+    # σ threshold, the CONVERGED goal jumps between the damped and undamped solutions —
+    # measured on the real cell as direction-reversing target chatter that doubled peak
+    # joint velocity (2.9 -> 4.6 rad/s) and fault-latched both arms ("Joint 3 velocity
+    # limit exceeded"). Static solves are fine (a 3 mm nudge at a true singularity: 0.37
+    # rad swing undamped -> 0.04 rad damped) — re-enable only with threshold hysteresis
+    # or goal-rate limiting.
+    ik_sing_threshold: float = 0.0   # σ₀ — onset; 0 disables
+    ik_sing_damping: float = 0.10    # λ_s — full damping at σ_min = 0
 
 
 def load_config() -> PinocchioConfig:
