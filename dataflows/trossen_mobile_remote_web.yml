@@ -162,5 +162,5 @@ nodes:
       APP_ID: "trossen_mobile_web"
       VISUALIZE__SINK: "spawn"
       VISUALIZE__CAMERAS: "cam_wrist1,cam_wrist2,cam_static1"
-      VISUALIZE__MEMORY_LIMIT: "2GB"
+      VISUALIZE__MEMORY_LIMIT: "256MB"
       VISUALIZE__SCENE: "assets/trossen_mobile/scenes/cart.yaml"
