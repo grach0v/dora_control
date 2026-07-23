@@ -1,6 +1,7 @@
 # REMOTE web teleop + episode recording for the Trossen MOBILE follower cell, across
-# THREE machines. Machine ids are HOST-named (robot hosts run one daemon each, 24/7 —
-# several robot cells can stay registered at once; see dataflows/README.md):
+# TWO machines (+ a coordinator host running no nodes). Machine ids are HOST-named
+# (robot hosts run one daemon each, 24/7 — several robot cells can stay registered
+# at once; see dataflows/README.md):
 #
 #   machine `trossen-mobile` — followers module (2x trossen-robot + state_sync) +
 #                        pinocchio + camera rig (2x RealSense wrist + 1x USB) + both
@@ -8,8 +9,6 @@
 #                        heavy video off the network).
 #   machine `operator`  (the teleop laptop) — web-controller (browser Cartesian +
 #                        Start/Finish/Task/Disconnect, port 8421) + live rerun view.
-#   machine `viewer`    (the coordinator host) — a second live rerun view: the same
-#                        topics fan out to N consumers (pub/sub).
 #
 # web-controller --command(cartesian bundle)--> pinocchio (IK + safety) --<part>_joint_target-->
 # followers; the followers' bundled `state` feeds back to pinocchio + recording. Disconnect
@@ -148,28 +147,6 @@ nodes:
   # Live view on the operator laptop: cameras + the 3D cell driven by the real arms' state.
   - id: rerun-view
     _unstable_deploy: { machine: operator, working_dir: ../.. }
-    build: uv sync --project nodes/rerun
-    path: nodes/rerun/.venv/bin/rerun-node
-    inputs:
-      cam_wrist1:  { source: cams/cam_wrist1_image,  queue_size: 1, queue_policy: drop_oldest }
-      cam_wrist2:  { source: cams/cam_wrist2_image,  queue_size: 1, queue_policy: drop_oldest }
-      cam_static1: { source: cams/cam_static1_image, queue_size: 1, queue_policy: drop_oldest }
-      left_tcp_pose:  { source: followers/left_tcp_pose,  queue_size: 1, queue_policy: drop_oldest }
-      right_tcp_pose: { source: followers/right_tcp_pose, queue_size: 1, queue_policy: drop_oldest }
-      state:          { source: followers/state,          queue_size: 1, queue_policy: drop_oldest }
-      program_state: manager/program_state
-    env:
-      MODE: "visualize"
-      APP_ID: "trossen_mobile_web"
-      VISUALIZE__SINK: "spawn"
-      VISUALIZE__CAMERAS: "cam_wrist1,cam_wrist2,cam_static1"
-      VISUALIZE__MEMORY_LIMIT: "2GB"
-      VISUALIZE__SCENE: "assets/trossen_mobile/scenes/cart.yaml"
-
-  # Second live view on the coordinator host (audience screen) — same topics, another
-  # subscriber; nothing on the robot side changes.
-  - id: rerun-view-audience
-    _unstable_deploy: { machine: viewer, working_dir: ../.. }
     build: uv sync --project nodes/rerun
     path: nodes/rerun/.venv/bin/rerun-node
     inputs:
