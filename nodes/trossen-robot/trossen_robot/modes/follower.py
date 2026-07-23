@@ -40,9 +40,9 @@ DEFAULT_SLEEP = [0.0] * 7
 
 class FollowerConfig(BaseModel):
     # Horizon (s) for streamed setpoints: 0 = immediate, <=0.2 linear, else quintic.
-    # Targets are commanded on the 33 ms tick (not on network arrival), so this
-    # should span a few ticks — the arm glides toward the latest target and
-    # arrival jitter never reaches the motion.
+    # Targets apply on arrival (rate-limited to one per 25 ms) with a tick keepalive
+    # for stream stalls; this horizon spans a few command periods so the arm glides
+    # toward the latest target instead of stepping.
     goal_time: float = 0.1
     # Reject a joint target whose largest joint jump exceeds this (rad) from the current
     # measured joints — a last-resort backstop; pinocchio owns IK + safety.
@@ -134,9 +134,13 @@ class FollowerMode:
             self._emit_status(msg)
             return
         self.pending_target = joints.tolist()
-        # Apply immediately (goal_time smooths each re-aim, so arrival jitter shapes
-        # WHEN we re-aim, not the motion itself) — waiting for the tick added ~16 ms.
-        self._apply_target()
+        # Apply immediately UNLESS the last apply was <25 ms ago: a wifi clump delivers
+        # several targets back-to-back, and firing every one re-aims the interpolator at
+        # burst rate (velocity spikes -> 20 mm rings past the target). Regularly spaced
+        # arrivals pass the gate untouched (~0 added latency); a gated clump member is
+        # picked up by the next arrival or the tick keepalive.
+        if time.monotonic() - self._last_apply >= 0.025:
+            self._apply_target()
 
     def _on_gripper_target(self, event) -> None:
         # The gripper rides along with the next set_all_positions.
