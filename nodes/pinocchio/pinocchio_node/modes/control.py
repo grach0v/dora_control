@@ -232,6 +232,7 @@ class ControlMode:
                 self.q, part, seg[:3], quat_xyzw_to_matrix(seg[3:7]),
                 damping=self.cfg.ik_damping, error_damping=self.cfg.ik_error_damping,
                 max_iters=self.cfg.ik_max_iters, tol=self.cfg.ik_tol,
+                sing_threshold=self.cfg.ik_sing_threshold, sing_damping=self.cfg.ik_sing_damping,
             )
             return goal
         if space == "joint":

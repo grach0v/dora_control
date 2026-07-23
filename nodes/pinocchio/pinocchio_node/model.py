@@ -163,15 +163,19 @@ class RobotModel:
             out[self.plane_axis] = max(out[self.plane_axis], self.plane_min)
         return out
 
-    def ik_step(self, q, part, target_pos, target_R, *, damping, error_damping=0.0):
+    def ik_step(self, q, part, target_pos, target_R, *, damping, error_damping=0.0,
+                sing_threshold=0.0, sing_damping=0.0):
         """One error-damped-least-squares (full 6-DOF) IK step for `part` (must have an ee).
         Returns (dq for the part's joints, error norm).
 
-        Damping is `λ² = damping² + (error_damping·‖e‖)²` (error-damped least squares): the
-        extra term grows with the task-space error, so a far/unreachable/near-singular target
-        is heavily damped (small, smooth steps — no pseudo-inverse blow-up or wobble) while a
-        close target keeps the small base damping for accuracy. This is robot-agnostic (the
-        knob is in task units), unlike a fixed manipulability threshold."""
+        Damping is `λ² = damping² + (error_damping·‖e‖)² + λ_sing²`:
+        * the error term grows with task-space error, so a far/unreachable target is
+          heavily damped (small, smooth steps — no pseudo-inverse blow-up or wobble)
+          while a close target keeps the small base damping for accuracy;
+        * λ_sing (Chiaverini) grows as the Jacobian's smallest singular value drops
+          below `sing_threshold`: near a singularity a SMALL task error would otherwise
+          demand huge joint motion (λ_error ≈ 0 there — it only sees error size). 0
+          disables it."""
         p = self.parts[part]
         oMdes = pin.SE3(target_R, self._project_target(target_pos))
         pin.framesForwardKinematics(self.model, self.data, q)
@@ -181,10 +185,15 @@ class RobotModel:
         jjt = j @ j.T
         e_norm = float(np.linalg.norm(err))
         lam2 = damping**2 + (error_damping * e_norm) ** 2
+        if sing_threshold > 0.0:
+            sigma_min = float(np.sqrt(max(0.0, np.linalg.eigvalsh(jjt)[0])))
+            if sigma_min < sing_threshold:
+                lam2 += (1.0 - (sigma_min / sing_threshold) ** 2) * sing_damping**2
         dq = -j.T @ np.linalg.solve(jjt + lam2 * np.eye(jjt.shape[0]), err)
         return dq, e_norm
 
-    def ik_solve(self, q, part, target_pos, target_R, *, damping, error_damping, max_iters, tol):
+    def ik_solve(self, q, part, target_pos, target_R, *, damping, error_damping, max_iters, tol,
+                 sing_threshold=0.0, sing_damping=0.0):
         """Iterate `ik_step` to convergence for `part`, returning (goal joints, final error).
 
         Unlike a single step, this lands on a STABLE configuration every call: a reachable
@@ -196,7 +205,9 @@ class RobotModel:
         qw = q.copy()
         err = float("inf")
         for _ in range(max_iters):
-            dq, err = self.ik_step(qw, part, target_pos, target_R, damping=damping, error_damping=error_damping)
+            dq, err = self.ik_step(qw, part, target_pos, target_R, damping=damping,
+                                   error_damping=error_damping,
+                                   sing_threshold=sing_threshold, sing_damping=sing_damping)
             if err < tol:
                 break
             qw[p.q_idx] = self.clamp_to_limits(part, qw[p.q_idx] + dq)

@@ -108,12 +108,15 @@ class FollowerMode:
         self.node.send_output(f"{self.name}_tcp_pose", pa.array(cartesian_to_pose7(cart)), metadata=md)
         self.node.send_output(f"{self.name}_joint_state", pa.array(joints[:6]), metadata=md)
         self.node.send_output(f"{self.name}_gripper_state", pa.array([joints[6]]), metadata=md)
-        # Command the latest target at the fixed tick rate: targets arrive with network
-        # jitter, but the arm is re-aimed on this clock, so jitter never reaches the
-        # motion. Re-sending an unchanged target keeps the interpolation converging.
-        if self.pending_target is not None:
-            grip = self.last_gripper if self.last_gripper is not None else 0.0
-            self.driver.set_all_positions([*self.pending_target, grip], self.cfg.goal_time, False)
+        # Keepalive re-aim: if the target stream stalls (wifi gap), keep the goal_time
+        # interpolation converging toward the latest target instead of freezing mid-glide.
+        self._apply_target()
+
+    def _apply_target(self) -> None:
+        if self.pending_target is None:
+            return
+        grip = self.last_gripper if self.last_gripper is not None else 0.0
+        self.driver.set_all_positions([*self.pending_target, grip], self.cfg.goal_time, False)
 
     def _on_joint_target(self, event) -> None:
         joints = event["value"].to_numpy()  # n arm joints (rad)
@@ -125,7 +128,10 @@ class FollowerMode:
             logger.warning(msg)
             self._emit_status(msg)
             return
-        self.pending_target = joints.tolist()  # commanded on the next tick
+        self.pending_target = joints.tolist()
+        # Apply immediately (goal_time smooths each re-aim, so arrival jitter shapes
+        # WHEN we re-aim, not the motion itself) — waiting for the tick added ~16 ms.
+        self._apply_target()
 
     def _on_gripper_target(self, event) -> None:
         # The gripper rides along with the next set_all_positions.

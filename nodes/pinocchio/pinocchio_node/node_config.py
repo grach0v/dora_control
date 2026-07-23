@@ -43,9 +43,16 @@ class PinocchioConfig(BaseSettings):
     # motion is then rate-limited toward it by the part's max_step — so a held unreachable
     # target settles on a steady pose instead of wobbling.
     ik_damping: float = 1e-3        # base damping λ₀ (accuracy near a reachable target)
-    ik_error_damping: float = 2.0   # error-damped LS gain: λ² += (this·‖e‖)² (smooth when far/singular)
+    ik_error_damping: float = 2.0   # error-damped LS gain: λ² += (this·‖e‖)² (smooth when far)
     ik_max_iters: int = 20          # max CLIK iterations per command
     ik_tol: float = 1e-3            # converged when the SE(3) error norm drops below this
+    # Chiaverini singularity damping: as the Jacobian's smallest singular value drops below
+    # the threshold, λ² += (1-(σ/σ₀)²)·λ_s². Error damping alone misses this case — near a
+    # singularity a SMALL task error demands huge joint motion (the arms visibly saw at the
+    # max_step clamp for millimetre TCP wiggles). 0 disables.
+    ik_sing_threshold: float = 0.04  # σ₀ — onset (below normal-config σ_min ≈ 0.05, so usually OFF)
+    ik_sing_damping: float = 0.10    # λ_s — full damping at σ_min = 0 (3mm nudge at a true
+    # singularity: 0.37 rad joint swing undamped -> 0.04 rad damped, +1mm task error)
 
 
 def load_config() -> PinocchioConfig:
