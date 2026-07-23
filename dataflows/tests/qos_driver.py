@@ -52,8 +52,10 @@ def main() -> None:
                 break
             continue
         if event["id"] in ("left_tcp_pose", "right_tcp_pose"):
+            # Anchor only once teleop is live: earlier poses are the sleep/homing pose,
+            # and a sine around those drives the IK into joint limits.
             side = event["id"].split("_")[0]
-            if side not in anchors:
+            if stage == "teleop" and side not in anchors:
                 anchors[side] = event["value"].to_pylist()
             continue
         if event["id"] != "tick":
