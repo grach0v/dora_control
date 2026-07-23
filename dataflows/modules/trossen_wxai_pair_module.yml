@@ -41,7 +41,7 @@ nodes:
       left_gripper_joint_target: { source: _mod/left_gripper_joint_target, queue_size: 1, queue_policy: drop_oldest }
       robot_command:             { source: _mod/robot_command,             queue_size: 1, queue_policy: drop_oldest }
     outputs: [left_tcp_pose, left_joint_state, left_gripper_state, left_node_state]
-    env: { NAME: "left", IP: "${LEFT_ARM_IP}", MODE: "follower", FOLLOWER__GOAL_TIME: "0.15" }
+    env: { NAME: "left", IP: "${LEFT_ARM_IP}", MODE: "follower", FOLLOWER__GOAL_TIME: "0.1" }
 
   - id: arm_right
     build: uv sync --project nodes/trossen-robot
@@ -53,7 +53,7 @@ nodes:
       right_gripper_joint_target: { source: _mod/right_gripper_joint_target, queue_size: 1, queue_policy: drop_oldest }
       robot_command:              { source: _mod/robot_command,              queue_size: 1, queue_policy: drop_oldest }
     outputs: [right_tcp_pose, right_joint_state, right_gripper_state, right_node_state]
-    env: { NAME: "right", IP: "${RIGHT_ARM_IP}", MODE: "follower", FOLLOWER__GOAL_TIME: "0.15" }
+    env: { NAME: "right", IP: "${RIGHT_ARM_IP}", MODE: "follower", FOLLOWER__GOAL_TIME: "0.1" }
 
   - id: state_sync
     build: uv sync --project nodes/sync

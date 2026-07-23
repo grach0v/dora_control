@@ -6,7 +6,11 @@ web-controller's manual mode) — safe on any cell: waits for the teleop stage a
 one measured pose per arm, then oscillates each arm's z around its anchor and
 sweeps the grippers.
 
-Env: AMPLITUDE (m, default 0.03), PERIOD (s, default 2.5).
+Env: AMPLITUDE (m, default 0.03), PERIOD (s, default 2.5), DISCONNECT_AFTER
+(s of teleop after which to send the operator `robot_command` "disconnect",
+exercising the full teardown path; 0 = never, default), EPISODE ("1" = emit
+episode task+start once teleop begins, so recorders capture an in-progress
+episode that teardown must flush).
 
 Inputs:  tick, program_state, left_tcp_pose, right_tcp_pose
 Outputs: command, episode_control, robot_command, node_state
@@ -28,11 +32,15 @@ GRIPPER_CLOSED = 0.0
 def main() -> None:
     amplitude = float(os.environ.get("AMPLITUDE", "0.03"))
     period = float(os.environ.get("PERIOD", "2.5"))
+    disconnect_after = float(os.environ.get("DISCONNECT_AFTER", "0"))
+    episode = os.environ.get("EPISODE", "0") == "1"
 
     node = Node()
     anchors: dict[str, list[float]] = {}
     stage = "boot"
     t0 = None
+    disconnect_sent = False
+    episode_started = False
     for event in node:
         if event["type"] == "STOP":
             break
@@ -56,6 +64,18 @@ def main() -> None:
         now = time.monotonic()
         if t0 is None:
             t0 = now
+        if episode and not episode_started:
+            md = {"timestamp": time.time()}
+            node.send_output("episode_control", pa.array(["task=qos test"]), metadata=md)
+            node.send_output("episode_control", pa.array(["start"]), metadata=md)
+            episode_started = True
+        if disconnect_sent:
+            continue  # commanded teardown in flight — wait for program_state disconnect
+        if disconnect_after and now - t0 >= disconnect_after:
+            node.send_output("robot_command", pa.array(["disconnect"]),
+                             metadata={"timestamp": time.time()})
+            disconnect_sent = True
+            continue
         phase = math.sin(2.0 * math.pi * (now - t0) / period)
         dz = amplitude * phase
         grip = 0.5 * (GRIPPER_OPEN + GRIPPER_CLOSED) + 0.5 * (GRIPPER_OPEN - GRIPPER_CLOSED) * phase

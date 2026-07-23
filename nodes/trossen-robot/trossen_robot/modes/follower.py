@@ -40,7 +40,10 @@ DEFAULT_SLEEP = [0.0] * 7
 
 class FollowerConfig(BaseModel):
     # Horizon (s) for streamed setpoints: 0 = immediate, <=0.2 linear, else quintic.
-    goal_time: float = 0.0
+    # Targets are commanded on the 33 ms tick (not on network arrival), so this
+    # should span a few ticks — the arm glides toward the latest target and
+    # arrival jitter never reaches the motion.
+    goal_time: float = 0.1
     # Reject a joint target whose largest joint jump exceeds this (rad) from the current
     # measured joints — a last-resort backstop; pinocchio owns IK + safety.
     max_joint_jump: float = 0.5
@@ -59,6 +62,7 @@ class FollowerMode:
         # State read from the arm every tick — used by the jump guard / joint assembly.
         self.last_joints: list[float] | None = None
         self.last_gripper: float | None = None
+        self.pending_target: list[float] | None = None  # latest accepted joint target
         self._disconnected = False  # operator Disconnect already homed the arm
         self._handlers: dict[str, Callable] = {
             "program_state": self._on_program_state,
@@ -104,6 +108,12 @@ class FollowerMode:
         self.node.send_output(f"{self.name}_tcp_pose", pa.array(cartesian_to_pose7(cart)), metadata=md)
         self.node.send_output(f"{self.name}_joint_state", pa.array(joints[:6]), metadata=md)
         self.node.send_output(f"{self.name}_gripper_state", pa.array([joints[6]]), metadata=md)
+        # Command the latest target at the fixed tick rate: targets arrive with network
+        # jitter, but the arm is re-aimed on this clock, so jitter never reaches the
+        # motion. Re-sending an unchanged target keeps the interpolation converging.
+        if self.pending_target is not None:
+            grip = self.last_gripper if self.last_gripper is not None else 0.0
+            self.driver.set_all_positions([*self.pending_target, grip], self.cfg.goal_time, False)
 
     def _on_joint_target(self, event) -> None:
         joints = event["value"].to_numpy()  # n arm joints (rad)
@@ -115,8 +125,7 @@ class FollowerMode:
             logger.warning(msg)
             self._emit_status(msg)
             return
-        grip = self.last_gripper if self.last_gripper is not None else 0.0
-        self.driver.set_all_positions([*joints.tolist(), grip], self.cfg.goal_time, False)
+        self.pending_target = joints.tolist()  # commanded on the next tick
 
     def _on_gripper_target(self, event) -> None:
         # The gripper rides along with the next set_all_positions.
