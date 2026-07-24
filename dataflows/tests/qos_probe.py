@@ -75,6 +75,7 @@ def main() -> None:
                     line["lat_ms_p90"] = lat[int(len(lat) * 0.9)] * 1000
                     line["lat_ms_max"] = lat[-1] * 1000
                 out.write(json.dumps(line) + "\n")
+                print(json.dumps(line), flush=True)  # visible via `dora logs <flow> <probe>`
             stats.clear()
             window_start = now
 
